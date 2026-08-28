@@ -17,7 +17,12 @@ import Foundation
 
 struct ProductionAllocator {
 
-    private static let tolerance = 0.001
+    // Widened from 0.001 (HELIOS.md §18 S15): with a sink in place, 8 of 10
+    // chains settle at 99–100% throughput, and the old tolerance reported all
+    // of them "Limited" in amber, 100% of the time. Status is now measured
+    // against what the player requested (see resolveStatus), so this only
+    // needs to absorb genuine floating-point/proportional-allocation noise.
+    private static let tolerance = 0.02
 
     /// Runs a full tick. Returns the grid figures for display, including the
     /// factor actually used to resolve Phase B — this is the single source of
@@ -45,7 +50,9 @@ struct ProductionAllocator {
         let producers = chains.indices.filter { chains[$0].isEnergyProducer }
         let consumers = chains.indices.filter { !chains[$0].isEnergyProducer }
 
-        // Phase A — producers, exempt from the grid.
+        // Phase A — producers, exempt from the grid. outputPercent applies to
+        // them too (through the shared `allocate` below) — a plant at 50%
+        // produces 50% of its MW.
         allocate(
             indices: producers,
             chains: &chains,
@@ -60,9 +67,15 @@ struct ProductionAllocator {
         for i in producers {
             supply += chains[i].energyProduced * chains[i].throughput
         }
+        // S6 fix: demand now reflects what each chain will actually draw —
+        // output-capped desire scaled by outputPercent — rather than the
+        // output-capped desire alone computed before input allocation. Under
+        // the old formula a chain that would actually run at 20% still booked
+        // 100% of its power draw, so turning a chain down never freed power
+        // for the rest of the colony. HELIOS.md §18 S6.
         var demand = 0.0
         for i in consumers {
-            demand += chains[i].energyRequired * outputCap[i]
+            demand += chains[i].energyRequired * min(outputCap[i], 1) * chains[i].outputPercent
         }
         let energyFactor = demand <= 0 ? 1 : min(1, supply / demand)
 
@@ -92,7 +105,7 @@ struct ProductionAllocator {
 
         var desired: [Int: Double] = [:]
         for i in indices {
-            desired[i] = min(outputCap[i], energyFactor)
+            desired[i] = min(outputCap[i], energyFactor) * chains[i].outputPercent
         }
 
         // Aggregate demand, then share what exists in proportion to it.
@@ -130,6 +143,8 @@ struct ProductionAllocator {
 
             chains[i].throughput = achieved
             chains[i].status = resolveStatus(
+                outputPercent: chains[i].outputPercent,
+                achieved: achieved,
                 inputFactor: inputFactor,
                 energyFactor: energyFactor,
                 outputCap: outputCap[i],
@@ -139,15 +154,22 @@ struct ProductionAllocator {
     }
 
     /// Reports only the single tightest constraint, so the UI names one
-    /// actionable thing.
+    /// actionable thing. Status is measured against what the player asked
+    /// for, not against 1.0 — a chain running at exactly its requested rate
+    /// is running, not limited. HELIOS.md §18 S15.
     private static func resolveStatus(
+        outputPercent: Double,
+        achieved: Double,
         inputFactor: Double,
         energyFactor: Double,
         outputCap: Double,
         binding: Resource.ID?
     ) -> ChainStatus {
-        let tightest = min(inputFactor, min(energyFactor, outputCap))
-        if tightest >= 1 - tolerance { return .running }
+        // Off by choice, not blocked — check this before anything else.
+        guard outputPercent > 0 else { return .paused }
+
+        let attainment = achieved / outputPercent
+        if attainment >= 1 - tolerance { return .running }
 
         if inputFactor <= energyFactor, inputFactor <= outputCap, let binding {
             return .limited(.input(binding))
