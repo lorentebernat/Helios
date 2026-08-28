@@ -19,9 +19,12 @@ struct Colony: Identifiable {
     var gridSupply: Double = 0
     var gridDemand: Double = 0
 
-    var gridFactor: Double {
-        gridDemand <= 0 ? 1 : min(1, gridSupply / gridDemand)
-    }
+    // Stored, set directly from what ProductionAllocator.run actually used to
+    // resolve Phase B — not recomputed here. Previously this was a computed
+    // property re-deriving the same ratio from gridSupply/gridDemand, which
+    // only agreed with the simulation's own factor by coincidence of both
+    // reading the same two numbers. HELIOS.md §18 S7.
+    var gridFactor: Double = 1
 
     /// How much of generation is being drawn. Can exceed 100% under brownout.
     var gridUtilisationPercent: Int {
@@ -51,6 +54,7 @@ struct Colony: Identifiable {
         )
         gridSupply = grid.supply
         gridDemand = grid.demand
+        gridFactor = grid.factor
 
         return advanceShipyard(fleetRate: fleetRate)
     }

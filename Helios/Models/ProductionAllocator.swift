@@ -19,14 +19,17 @@ struct ProductionAllocator {
 
     private static let tolerance = 0.001
 
-    /// Runs a full tick. Returns the grid figures for display.
+    /// Runs a full tick. Returns the grid figures for display, including the
+    /// factor actually used to resolve Phase B — this is the single source of
+    /// truth for the grid factor; Colony stores it verbatim rather than
+    /// recomputing it from gridSupply/gridDemand. HELIOS.md §18 S7.
     @discardableResult
     static func run(
         chains: inout [ChainDetail],
         stock: inout ColonyStock,
         economyRate: Double
-    ) -> (supply: Double, demand: Double) {
-        guard !chains.isEmpty else { return (0, 0) }
+    ) -> (supply: Double, demand: Double, factor: Double) {
+        guard !chains.isEmpty else { return (0, 0, 1) }
 
         // Output headroom for every chain. Energy producers have no output
         // store, so they're never capped here.
@@ -73,7 +76,7 @@ struct ProductionAllocator {
             outputCap: outputCap
         )
 
-        return (supply, demand)
+        return (supply, demand, energyFactor)
     }
 
     /// Proportional input allocation across one set of chains.
