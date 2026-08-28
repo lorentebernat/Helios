@@ -9,9 +9,12 @@ import SwiftUI
 
 @main
 struct HeliosApp: App {
+    @State private var gameState = GameState.seeded()
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(gameState)
         }
     }
 }

@@ -1,0 +1,44 @@
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# ---- Xcode: user-specific state ----
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+*.xcscmblueprint
+*.xccheckout
+
+# ---- Xcode: build products & derived data ----
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ---- Swift Package Manager ----
+.build/
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.swiftpm/configuration/registries.json
+Packages/
+Package.resolved
+
+# ---- Provisioning / signing (never commit) ----
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.cer
+
+# ---- Playgrounds ----
+timeline.xctimeline
+playground.xcworkspace
+
+# ---- Misc ----
+*.log
