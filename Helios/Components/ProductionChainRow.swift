@@ -19,9 +19,23 @@ struct ProductionChainRow: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(chain.name)
-                    .font(GameTheme.Font.rowTitle)
-                    .foregroundStyle(GameTheme.textPrimary)
+                HStack(spacing: 6) {
+                    Text(chain.name)
+                        .font(GameTheme.Font.rowTitle)
+                        .foregroundStyle(GameTheme.textPrimary)
+
+                    // A throttled chain is a deliberate choice, not a warning —
+                    // secondary tint, not amber (amber is reserved for alerts
+                    // and blocked states, HELIOS.md §16).
+                    if chain.outputPercent > 0, chain.outputPercent < 1 {
+                        Text("\(Int((chain.outputPercent * 100).rounded()))%")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(GameTheme.textSecondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(.white.opacity(0.08)))
+                    }
+                }
                 Text(chain.statusNote)
                     .font(GameTheme.Font.caption)
                     .foregroundStyle(chain.status.tint)
@@ -45,5 +59,8 @@ struct ProductionChainRow: View {
         }
         .padding(GameTheme.Spacing.md)
         .glass(cornerRadius: GameTheme.Radius.row, strokeOpacity: GameTheme.GlassStroke.subtle)
+        // Paused (0%) dims the whole row, matching locked-tier/locked-research
+        // treatment — a visibly inactive chain, not a broken one.
+        .opacity(chain.outputPercent <= 0 ? 0.55 : 1)
     }
 }
