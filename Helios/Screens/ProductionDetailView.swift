@@ -79,6 +79,10 @@ struct ProductionDetailView: View {
                     }
                 }
 
+                OutputPercentSection(chain: chain) { newValue in
+                    game.setOutputPercent(chainID: chain.id, to: newValue)
+                }
+
                 WorkforceSection(
                     assigned: chain.workforceAssigned,
                     required: chain.workforceRequired,
@@ -89,6 +93,60 @@ struct ProductionDetailView: View {
             }
             .padding(.horizontal, GameTheme.Spacing.lg)
         }
+    }
+}
+
+/// Five coarse stops rather than a continuous slider — this is a phone.
+/// Mutates through GameState.setOutputPercent, never the chain directly.
+private struct OutputPercentSection: View {
+    let chain: ChainDetail
+    let onSelect: (Double) -> Void
+
+    private static let stops: [Double] = [0, 0.25, 0.5, 0.75, 1]
+
+    private var requestedPercent: Int { Int((chain.outputPercent * 100).rounded()) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: GameTheme.Spacing.sm) {
+            Text("Output")
+                .font(GameTheme.Font.rowTitle)
+                .foregroundStyle(GameTheme.textPrimary)
+
+            HStack(spacing: GameTheme.Spacing.xs) {
+                // No `let` as the closure's first statement (HELIOS.md gotcha:
+                // it can push the compiler onto the wrong ForEach overload) —
+                // the equality check is just repeated inline instead.
+                ForEach(Self.stops, id: \.self) { stop in
+                    Button {
+                        onSelect(stop)
+                    } label: {
+                        Text("\(Int(stop * 100))%")
+                            .font(GameTheme.Font.chipLabel)
+                            .foregroundStyle(stop == chain.outputPercent ? GameTheme.textPrimary : GameTheme.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 36)
+                            .background(
+                                RoundedRectangle(cornerRadius: GameTheme.Radius.pill, style: .continuous)
+                                    .fill(stop == chain.outputPercent ? AnyShapeStyle(GameTheme.accent.opacity(0.22)) : AnyShapeStyle(Color.clear))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: GameTheme.Radius.pill, style: .continuous)
+                                    .strokeBorder(stop == chain.outputPercent ? GameTheme.accent : .clear, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Always shown, not just on divergence — it flickered in and out
+            // within a tick or two of tapping a stop, which read as broken
+            // rather than confirming what was just set.
+            Text("Running at \(chain.throughputPercent)% · requested \(requestedPercent)%")
+                .font(GameTheme.Font.caption)
+                .foregroundStyle(GameTheme.textSecondary)
+        }
+        .padding(GameTheme.Spacing.lg)
+        .glass(cornerRadius: GameTheme.Radius.panel, strokeOpacity: GameTheme.GlassStroke.standard)
     }
 }
 

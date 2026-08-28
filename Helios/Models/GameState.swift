@@ -151,4 +151,14 @@ final class GameState {
         )
         return true
     }
+
+    /// Sets a chain's player-requested output rate, clamped to 0...1.
+    /// Mutates by index (HELIOS.md §14) — views read `activeColony` as a copy
+    /// and can't write through it.
+    func setOutputPercent(chainID: ChainDetail.ID, to value: Double) {
+        let i = activeIndex
+        guard let j = colonies[i].productionChains.firstIndex(where: { $0.id == chainID })
+        else { return }
+        colonies[i].productionChains[j].outputPercent = min(1, max(0, value))
+    }
 }
