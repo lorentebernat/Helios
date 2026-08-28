@@ -4,12 +4,43 @@
 import SwiftUI
 
 struct PlanetBackdrop: View {
-    var diameter: CGFloat = 340
-    var baseColor: Color = Color(red: 0.35, green: 0.55, blue: 0.75)
-    var bandColor: Color = Color(red: 0.15, green: 0.30, blue: 0.45)
-    var rotationDuration: Double = 40   // seconds per full "rotation"
+    var diameter: CGFloat
+    var baseColor: Color
+    var bandColor: Color
+    var rotationDuration: Double   // seconds per full "rotation"
 
     @State private var scrollX: CGFloat = 0
+
+    // @State, not a plain let: MainColonyView's body re-evaluates on every
+    // tick, which re-runs this struct's initializer. A plain `let` computed
+    // in init has no memory across that reconstruction, so it silently
+    // re-rolled every tick — that was the actual bug, not just "not enough
+    // randomness moved out of body". @State's storage persists across
+    // reconstruction, keyed to this view's identity in the tree: the
+    // `initialValue` passed in `init` below is used only the very first
+    // time this view is created, and ignored on every subsequent tick's
+    // reconstruction. HELIOS.md §18 S12.
+    @State private var surfaceBlobs: [SurfaceBlob]
+
+    init(
+        diameter: CGFloat = 340,
+        baseColor: Color = Color(red: 0.35, green: 0.55, blue: 0.75),
+        bandColor: Color = Color(red: 0.15, green: 0.30, blue: 0.45),
+        rotationDuration: Double = 40
+    ) {
+        self.diameter = diameter
+        self.baseColor = baseColor
+        self.bandColor = bandColor
+        self.rotationDuration = rotationDuration
+        _surfaceBlobs = State(initialValue: (0..<14).map { i in
+            SurfaceBlob(
+                width: CGFloat.random(in: 40...140),
+                height: CGFloat.random(in: 20...60),
+                x: CGFloat(i) * (diameter * 2.2 / 14) + CGFloat.random(in: -20...20),
+                y: CGFloat.random(in: 20...(diameter - 20))
+            )
+        })
+    }
 
     var body: some View {
         ZStack {
@@ -42,17 +73,11 @@ struct PlanetBackdrop: View {
     private var surfaceTexture: some View {
         ZStack {
             baseColor
-            ForEach(0..<14, id: \.self) { i in
+            ForEach(surfaceBlobs, id: \.self) { blob in
                 Ellipse()
                     .fill(bandColor.opacity(0.6))
-                    .frame(
-                        width: CGFloat.random(in: 40...140),
-                        height: CGFloat.random(in: 20...60)
-                    )
-                    .position(
-                        x: CGFloat(i) * (diameter * 2.2 / 14) + CGFloat.random(in: -20...20),
-                        y: CGFloat.random(in: 20...(diameter - 20))
-                    )
+                    .frame(width: blob.width, height: blob.height)
+                    .position(x: blob.x, y: blob.y)
                     .blur(radius: 6)
             }
         }
@@ -87,6 +112,13 @@ struct PlanetBackdrop: View {
                 ),
                 lineWidth: 1.5
             )
+    }
+
+    private struct SurfaceBlob: Hashable {
+        let width: CGFloat
+        let height: CGFloat
+        let x: CGFloat
+        let y: CGFloat
     }
 }
 

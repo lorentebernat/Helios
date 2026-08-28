@@ -5,9 +5,9 @@
 | | |
 |---|---|
 | **Status** | Authoritative. Nothing else in this repo overrides it. |
-| **Last reconciled** | 28 August 2026, against commit `e5ae9ca` |
+| **Last reconciled** | 28 August 2026, against commit `e5ae9ca`. Balance figures re-measured same day (Appendix C). |
 | **Supersedes** | `HELIOS_DESIGN.md`, `HELIOS_ROADMAP.md`, `HELIOS_WORLD.md` — all three now stubs pointing here. Their full text is in git history. |
-| **Reference, not authority** | `OGAME_COMPARISON.md` (research input), `../sources/` (Anno 1800 library), `AUDIT-2026-08-28.md` in the Claude project (point-in-time snapshot) |
+| **Reference, not authority** | `OGAME_COMPARISON.md` (research input), `sources/` (Anno 1800 library), `AUDIT-2026-08-28.md` in the Claude project (point-in-time snapshot) |
 
 > **Rule for this document.** Design decisions, current state, and the plan live
 > here and only here. Research inputs stay where they are and remain inputs —
@@ -26,7 +26,7 @@
 - **Part V — The plan** — §19 phases · §20 open questions
 - **Part VI — Decision log** — §21
 - **Part VII — Working method & gotchas** — §22 · §23
-- **Appendices** — A: OGame transfers · B: document map
+- **Appendices** — A: OGame transfers · B: document map · C: simulated balance baseline
 
 ---
 ---
@@ -210,6 +210,60 @@ against the quota* rather than a ceiling everything parks against. It also makes
 the fleet matter — quota is shipped, so hauling capacity is a real constraint,
 which is what "loading is a withdrawal" was always for (§11).
 
+### A quota is a ledger, not a snapshot ▲
+
+**Deliveries accumulate against the quota across the interval. The Empire does
+not take a snapshot of your stores at the deadline.**
+
+This was tested rather than assumed (Appendix C), and snapshot settlement fails
+badly. Because a snapshot can only take what you are *holding*, quota size is
+silently capped by storage capacity rather than by production. At a 960-minute
+interval the power-cell demand is **19× everything the colony can physically
+hold** — unmeetable at any level of industry. Worse, the interval lengthens as
+standing improves, so under snapshot settlement *the better you play, the more
+impossible the quota becomes*. That is the standing spiral reappearing through
+a side door.
+
+Ledger delivery removes it completely. Measured fill rate across intervals of
+60, 240, 960 and 2,880 minutes: **0.59, 0.59, 0.60, 0.60** — interval has no
+economic effect at all. That is exactly what §4.1 needs: cadence can be a pure
+attention-and-planning mechanic with no hidden economic consequence.
+
+It also gives the fleet a real job. You deliver in several trips across the
+interval rather than one lump, so hauling capacity and trip timing matter, and
+storage becomes a buffer for *timing* rather than a ceiling on ambition.
+
+### Sizing ▲
+
+Quota per good is set from that good's **measured export capacity** — production
+net of colonist consumption — times the interval, times a load factor.
+
+**Load 1.0 is the target.** Measured (Appendix C):
+
+| Load | Stores settle at | Chains at full rate | Population |
+|---|---|---|---|
+| 0.5 | 97% — still saturated | 2/10 | 450 |
+| **1.0** | **3–7% tradeables** | **8/10 at 99–100%** | **450** |
+| 1.5 | 9% | 8/10 | 398 — colonists dying |
+| 3.0 | 5% | 8/10 | 192 — colony collapsing |
+
+Below ~0.75 the quota is too small to be a sink and the colony stays saturated.
+Above ~1.2 the quota starts eating the colony. **The usable band is narrow**, and
+that is the single most important balance fact in the game.
+
+### Colonists eat first, and the Empire cannot take their food ▲
+
+A hard floor reserves a fraction of storage (30% in testing) on basic-need goods
+— oxygen, rations, water — which quota may never draw below. Without it, high
+quota loads kill the colony outright: at load 3.0, population ends at 192 with
+the reserve and **90** without; at load 4.0, 89 with and **zero** without.
+
+Note the reserve protects *basic* needs only. Luxuries stay contested on purpose:
+at load 1.0 the settlers sit at **0.86 happiness** because the Empire is taking
+the Alloy Tools they want. That blocks promotion and is exactly the intended
+squeeze — the Empire's demand competing with your colonists' comfort, with the
+player holding the output-% lever that resolves it.
+
 ### 4.3 Commissions — the optional half
 
 Alongside the mandatory quota, the Empire occasionally posts **Commissions** ⚑:
@@ -294,10 +348,16 @@ deadline is meaningless without a save file and offline catch-up. §18 S4 alread
 argued persistence should come forward; this decision settles it.
 
 **It is the first thing in Helios tied to the wall clock.** Everything else is
-game-time. When a player is away longer than an interval, quotas auto-settle from
-stores on hand with the shortfall recorded — meaning **stock left in your stores
-at the deadline is what pays**. That quietly makes storage strategy and offline
-planning matter, and is a good property rather than a compromise.
+game-time. When a player is away longer than an interval, the ledger (§4.2) keeps
+accruing deliveries during catch-up replay and the quota settles at its deadline
+with whatever accumulated, shortfall recorded. Absence therefore costs you the
+*optimisation* — a present player retasks chains to close the gap — but never
+strands you behind an unmeetable snapshot.
+
+**Interval length has no economic effect.** Verified across 60 → 2,880 minute
+intervals (Appendix C). This is what makes the band system in §4.1 safe: cadence
+changes how much planning room you have and how often you must attend, and
+nothing else.
 
 ---
 
@@ -729,9 +789,11 @@ floating-point divergence if the server isn't Swift.
 
 ### Prior art
 
-An earlier headless `SimulationCore` Swift Package (`ProductionEngine`,
-`TierEvaluator`, `SimulationClock`, 16 passing tests) exists as reference, not
-active code. Its logic plugs in at the `ProductionAllocator` seam — and the
+An earlier headless, **JSON-driven** `SimulationCore` Swift Package
+(`ProductionEngine`, `TierEvaluator`, `SimulationClock`, 16 passing tests) exists
+as reference, not active code. The JSON-driven data shape is worth remembering —
+authored data loaded rather than compiled in is what a server-side sim would want
+too. Its logic plugs in at the `ProductionAllocator` seam — and the
 multiplayer plan makes reviving that separation genuinely necessary rather than
 merely tidy.
 
@@ -764,9 +826,16 @@ being deleted.
 - `VoidBackground` = gradient + nebula glows + starfield
 - Cyan accent, ~RGB `0.30 / 0.85 / 0.95`
 - Amber (`GameTheme.warn`) reserved **strictly** for alerts and blocked states
-- Dark mode only
+- Dark mode only (`.preferredColorScheme(.dark)`)
 
-**Design system** — `DesignSystem.swift`, nested-enum tokens for scalability:
+**Provenance.** The panel style, floating capsule buttons and glass tab bar were
+informed by glassmorphism app screenshots — a food app and a plant-shop app —
+used as reference material during the original visual pass.
+
+**Design system** — `DesignSystem.swift`, nested-enum tokens for scalability. The
+nesting was chosen anticipating categories that don't exist yet (`Motion`,
+per-world palettes), so autocomplete stays organised rather than becoming one long
+flat list:
 
 | Namespace | Members |
 |---|---|
@@ -821,8 +890,8 @@ for 1,200 ticks against `GameState.seeded()`.
 
 | # | Issue | Severity | Answered by |
 |---|---|---|---|
-| **S1** | **The simulation stops.** By ~tick 60 every store is at capacity, population is pinned at both caps, and nine of ten chains read "Output full" forever. No sink exists: production out-runs population and nothing else consumes anything. Retuning moves the saturation point, it does not remove it. | Critical | Quota (§4.2) |
-| **S2** | **No player agency over the economy.** Two actions exist in the whole app. Output %, workforce, building, starting research: none. | Critical | Output % (Phase 1) + Quota stakes |
+| **S1** | **The simulation stops.** By ~tick 60 every store is at capacity, population is pinned at both caps, and nine of ten chains read "Output full" forever. No sink exists: production out-runs population and nothing else consumes anything. Retuning moves the saturation point, it does not remove it. **Output % does not fix this** — verified by simulation; only a sink does. | Critical | Quota (§4.2); debug sink in Phase 1a |
+| **S2** | **No player agency over the economy.** Two actions exist in the whole app. Output %, workforce, building, starting research: none. | Critical | Output % (Phase 1a) |
 | **S3** | **Credits only decrease.** `credits -=` is the sole mutation. Buy an Escort and a Scout and the shipyard is permanently dead. | Critical | Stipend (§4.7) |
 | **S4** | **No persistence.** Nothing is `Codable`. Quitting resets the world. `lastTickAt` hedges nothing without a save file. | Critical | Promoted to Phase 1.5 (§19) |
 | **S5** | **Determinism broken inside `tick()`.** `Ship.id = UUID()` executes inside the pure step when a build order completes. Breaks replay and server reconciliation. | High | Phase 1.5 |
@@ -835,6 +904,7 @@ for 1,200 ticks against `GameState.seeded()`.
 | **S12** | **Backgrounds re-randomise on body evaluation.** `VoidBackground` (40 stars) and `PlanetBackdrop` (14 ellipses) call `.random` inside `body`. Harmless before the tick loop existed. **Verify on device**; fix is cheap either way — hoist into `@State`. | Medium | Quick fix |
 | **S13** | **Doc drift** — resolved by this document. Recorded in §21 for the record. | — | Done |
 | **S14** | **Minor:** duplicate `.navigationDestination` registration for `ChainDetail.ID`; `ContentView` is a pure passthrough; ticker attached to `GlassTabBar` (hide the bar and time stops); `kepler-7` has `travelTimeMinutes: 0`; `ChainDetail.id = UUID()` contradicts the slug-id decision and will orphan nav references once persistence lands. | Low | Opportunistic |
+| **S15** | **The "running" tolerance is too tight for a flowing economy.** `resolveStatus` reports `.running` only when the tightest factor is ≥ `1 - 0.001`. Once a sink exists the colony sits in permanent near-equilibrium, and chains at **99.5% throughput report "Limited by Raw Ice" in amber**. Measured: 8 of 10 chains at 99–100% throughput, all flagged limited, 100% of ticks. Invisible today only because the saturated economy pins everything at 0 or 1. **The colony screen will go amber almost everywhere the moment quota lands.** Fix: widen the tolerance (~0.02), and drive the status tint from `throughput` rather than from the binary status. | High — lands with quota | Phase 1 |
 
 ### What's working, and worth protecting
 
@@ -875,10 +945,18 @@ restore `PlanetBackdrop`; wire material costs into `BuildCost`; multiplayer hedg
 
 Also in Phase 1: fix S6 (grid demand), S7 (two grid factors), S12 (backgrounds).
 
-**▲ Output % moves to the front of Phase 1.** It's the only item that closes S1
-and S2 simultaneously, and the allocator is already shaped to take it (`.paused`
-and `desired[i]` both exist). Workforce follows — the more interesting mechanic,
-the less urgent one.
+**▲ Output % moves to the front of Phase 1** — but it does **not** close S1, and
+an earlier version of this document (and the audit) claimed it did. Corrected by
+simulation, 28 Aug: in a saturated economy, throttling a chain changes only which
+store is full. Refined Alloy sits at 149/150 whether the Tool Fab runs at 100% or
+0%. Output % closes **S2** — it is the first real decision the player gets — but
+the lever moves nothing until something is pulling goods out of the colony.
+
+Consequence: Phase 1a ships a **temporary debug sink** so the feature is testable
+and feelable at all, removed when Quota lands in Phase 2. See
+`briefs/phase-1a-output-percent.md`.
+
+Workforce follows — the more interesting mechanic, the less urgent one.
 
 **Note:** energy producers are themselves chains. The exemption is already
 implemented; don't undo it.
@@ -1035,6 +1113,22 @@ already gates promotion — no new mechanic.
 **Dispensations change how you play, not how much.** Anything expressible as
 "+10% X" belongs in research.
 
+**A quota is a ledger, not a snapshot** *(simulated, Appendix C)*. Deliveries
+accumulate across the interval. **Rejected:** settling from stores on hand at the
+deadline — it silently caps quota size at storage capacity rather than production,
+making long intervals unmeetable (19× storage at 960 minutes) and turning good
+standing into a punishment. Ledger delivery makes interval length economically
+neutral, which is what the cadence bands require.
+
+**Quota is sized per good from measured export capacity × interval × load, at
+load ≈ 1.0** *(simulated)*. Below 0.75 it isn't a sink; above 1.2 it kills the
+colony. The usable band is narrow and must be re-measured whenever the chain
+network changes.
+
+**Basic-need goods have a reserve floor the quota cannot cross** *(simulated)*.
+Without it, load 4.0 empties the colony to zero population. Luxuries stay
+contested deliberately — that contest is the squeeze.
+
 ### Architecture
 
 **Design tokens: nested enums over flat statics.** Nested namespacing keeps
@@ -1132,7 +1226,7 @@ From `OGAME_COMPARISON.md` §4:
 
 **One master document.** `HELIOS_DESIGN.md`, `HELIOS_ROADMAP.md` and
 `HELIOS_WORLD.md` are superseded by this file and reduced to stubs. Research inputs
-(`OGAME_COMPARISON.md`, `../sources/`) stay as inputs and are never authoritative.
+(`OGAME_COMPARISON.md`, `sources/`) stay as inputs and are never authoritative.
 Point-in-time artefacts (audits) are dated and archived.
 
 **Recorded drift, now corrected:** the old design doc claimed Phase 0 complete with
@@ -1160,8 +1254,10 @@ under `Shared/`; and omitted `energyProduced`, `energyRequired`, `workforceAssig
 - **Full files, never elided.** Handing over a rewrite with `...unchanged...`
   comments has twice caused a stripped-down screen to be pasted in, and lost
   `PlanetBackdrop` from `MainColonyView` for several phases.
-- **Commit more often.** Three weeks of work sat uncommitted before 28 Aug. There
-  is still no remote — the repo exists on one disk.
+- **Commit more often.** Three weeks of work sat uncommitted before 28 Aug — one
+  commit in the repo's entire history until then. A private GitHub remote was
+  added the same day (`origin`, personal account via the `github-personal` SSH
+  alias), so the work is no longer on a single disk. Push as you go.
 
 ## 23. Gotchas
 
@@ -1255,16 +1351,20 @@ changing it.
 | `DOCS.md` | Map of what's authoritative and what isn't. |
 | — | 📌 `AUDIT-2026-08-28.md` lives in the **Claude project**: a point-in-time snapshot valid only for commit `e5ae9ca`. Its findings are folded into §18, which is the live status. |
 
-### Outside the repo (`../sources/`, 31 files)
+### The reference library (`sources/`, 31 files)
 
 The **Anno 1800 reference library** — a restructured Steam guide covering
 progression, economy, logistics, production chains, regions, DLC, ships, combat,
 specialists, and optimisation. Pure external reference material about a *different
 game*. Useful for mining mechanics; nothing in it describes Helios.
 
-⚠️ **It sits outside the git repo** (`Helios/sources/` vs the repo at
-`Helios/Helios/`), so it is untracked and unbacked-up. Worth moving inside, or
-deliberately deciding it stays out.
+✅ **Moved into the repo 28 Aug 2026.** It previously sat at `Helios/sources/`,
+a sibling of the repo at `Helios/Helios/` — untracked and unbacked-up. It is now
+inside the work tree and version-controlled.
+
+Note it is large (~13,000 lines across 31 files) and completely static. It will
+never change again, so it costs one commit and nothing thereafter; treat any diff
+touching it as suspicious.
 
 ### In the Claude project
 
@@ -1272,13 +1372,89 @@ deliberately deciding it stays out.
 |---|---|
 | `claude/HELIOS.md` | 🔁 Mirror of this file. **The repo copy is canonical.** Re-sync on material change. |
 | `claude/AUDIT-2026-08-28.md` | 📌 Dated snapshot, commit `e5ae9ca`. |
-| `HELIOS_DESIGN.md`, `HELIOS_ROADMAP.md` | ⚠️ Superseded stubs. |
+| `claude/HELIOS_DESIGN.md`, `HELIOS_ROADMAP.md` | ⚠️ Superseded stubs. |
 | `OGAME_COMPARISON.md` | 📚 Reference input. |
 | 31 Anno 1800 docs | 📚 Reference input. |
 
-⚠️ **Unresolved:** the project contains **two documents at the path
-`HELIOS_DESIGN.md`** (12 Aug and 20 Aug). Path lookups always resolve to the
-newest, so the 12 Aug copy can neither be read nor replaced through the API — it
-still holds full stale design text and will surface in project search. It is also
-the one Helios document with no copy in git. **Delete it manually in claude.ai**,
-and read it first if you want to check whether anything in it is unique.
+✅ **Resolved 28 Aug 2026.** The project had held two documents at the path
+`HELIOS_DESIGN.md` (12 Aug and 20 Aug). Path lookups always resolved to the newest,
+so the 12 Aug draft was invisible to read and write — but reachable through project
+*search*, which is how it was recovered and inspected. It was an earlier draft of
+the same document, superseded in every respect but three details that the 20 Aug
+rewrite had dropped. Those three were rescued into this file first (the
+glassmorphism reference material in §16, the `Motion` / per-world-palette rationale
+for nested tokens in §16, and `SimulationCore` being JSON-driven in §14). Both
+copies were then deleted and replaced with a single stub.
+
+**Lesson worth keeping:** a document can be invisible to `project_read` and still
+be live in search — and therefore still be answering questions with stale content.
+Search is the way to audit a project for duplicates, not the file listing.
+
+## Appendix C — Simulated balance baseline (28 Aug 2026)
+
+Produced by a line-for-line Python port of `ProductionAllocator` and `Population`
+run against `GameState.seeded()`. Scripts live in `tools/`; re-run them whenever
+the chain network, resource capacities or population tuning change — **every
+number below is a measurement of the current seed data, not a constant.**
+
+### Export capacity
+
+Production net of colonist consumption at full population (300 Survivors + 150
+Settlers), measured with a perfect sink over 2,500 game-minutes:
+
+| Good | per game-minute | per game-hour |
+|---|---|---|
+| Power Cells | 5.31 | 319 |
+| Raw Ore | 5.09 | 305 |
+| Alloy Tools | 2.80 | 168 |
+| Oxygen | 2.31 | 138 |
+| Raw Ice | 2.07 | 124 |
+| Grain | 2.06 | 123 |
+| Water | 0.56 | 33 |
+| Ration Bars | 0.23 | 14 |
+| Refined Alloy | **0.04** | 3 |
+
+**Refined Alloy is the structural bottleneck.** The Smelter supplies 7/min while
+the Tool Fab and Cell Factory demand 5 + 3 = 8/min, so both consumers sit
+permanently at **87.5%** and Refined Alloy has essentially no exportable surplus.
+This is currently an accident of seed data, not a designed constraint — but it is
+a *good* accident: it is a legible, diagnosable bottleneck sitting exactly where
+the first upgrade decision should go. Keep it, and make it deliberate.
+
+Note also how thin Water (0.56) and Ration Bars (0.23) are. Any quota naming them
+is near the edge of what the colony can spare, which is why sizing must be
+per-good rather than a single tonnage.
+
+### Steady state at load 1.0
+
+| Chain | Throughput | Binding constraint |
+|---|---|---|
+| Ice Harvester | 100% | — |
+| Ore Extractor | 100% | — |
+| Power Plant | 100% | — |
+| Water Reclaimer | 100% | raw-ice (marginal) |
+| Oxygen Recycler | 100% | raw-ice (marginal) |
+| Hydroponics Bay | 100% | — |
+| Ration Bar Synth | 99% | grain (marginal) |
+| Alloy Smelter | 99% | raw-ore (marginal) |
+| Alloy Tool Fab | **86%** | **refined-alloy** |
+| Cell Factory | **86%** | **refined-alloy** |
+
+Stores settle at 0–7% for tradeables and hold at the 30% reserve for oxygen,
+rations and water. Population stable at 450. **Settler happiness 0.86** — the
+Empire is taking their Alloy Tools, which blocks promotion.
+
+Six of those chains report `limited` while running at 99–100%. That is §18 S15.
+
+### What quota does *not* fix
+
+Quota moves the economy from saturated to flowing, but it cannot do it alone:
+
+- **Breadth beats size.** A quota naming one good unsticks one chain and leaves
+  stores at 97%. Naming all nine drops stores to 73% at the same load. A narrow
+  manifest is a narrow sink.
+- **The band is narrow.** Between "too small to matter" and "kills the colony"
+  there is roughly a 0.75–1.2 load window.
+- **A second sink is still wanted.** Construction consuming materials (Phase 5)
+  is what gives the player a way to *spend* surplus deliberately rather than only
+  having it taken. Quota is pressure; building is agency.
