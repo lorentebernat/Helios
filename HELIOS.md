@@ -895,16 +895,16 @@ for 1,200 ticks against `GameState.seeded()`.
 | **S3** | **Credits only decrease.** `credits -=` is the sole mutation. Buy an Escort and a Scout and the shipyard is permanently dead. | Critical | Stipend (§4.7) |
 | **S4** | **No persistence.** Nothing is `Codable`. Quitting resets the world. `lastTickAt` hedges nothing without a save file. | Critical | Promoted to Phase 1.5 (§19) |
 | **S5** | **Determinism broken inside `tick()`.** `Ship.id = UUID()` executes inside the pure step when a build order completes. Breaks replay and server reconciliation. | High | Phase 1.5 |
-| **S6** | **Grid demand overstated.** Demand uses `energyRequired × outputCap` computed *before* input allocation, so an input-starved chain still books full power draw. Latent today (factor pinned at 1.00); fires the moment energy is tight. | High | Phase 1 |
-| **S7** | **Two sources of truth for the grid factor.** `Colony.gridFactor` (stored, post-tick) vs `ProductionAllocator`'s internal `energyFactor` (mid-tick). UI renders one, sim obeys the other. | Medium | Phase 1 |
+| **S6** | **Resolved, Phase 1a (28 Aug 2026).** Grid demand used `energyRequired × outputCap` computed *before* input allocation, so an input-starved chain still booked full power draw. Fixed: demand now scales by `outputPercent` too, reflecting what each chain will actually draw. | — | Done |
+| **S7** | **Resolved, Phase 1a (28 Aug 2026).** `Colony.gridFactor` was a separately computed re-derivation of `ProductionAllocator`'s internal `energyFactor` — the UI rendered one, the sim obeyed the other. Fixed: `ProductionAllocator.run` now returns the factor it used, and `Colony.gridFactor` stores it verbatim. | — | Done |
 | **S8** | **Zero test coverage** on `ProductionAllocator` and `Population` — the two most intricate pure functions. Went from 16 tests (`SimulationCore`) to 0. | High | Phase 1.5 |
 | **S9** | `Models/ResearchProject.swift` **imports SwiftUI** (`ResearchCategory.icon`). One crack in the constraint the multiplayer plan rests on. | Low | Move to `ModelStyles` |
 | **S10** | **Research entirely inert**, and the UI doesn't say so — "+12/min from Ascendants" with zero Ascendants and a number that never moves. `status` is a `let`. | Medium | Archive (§4.6), Phase 5 |
-| **S11** | **Unenforced fields:** `requiredTier` (never checked), `workforceAssigned/Required` (display only; Tool Fab seeded 5/6), `providesWorkforce` (unused), `LimitReason.workforce` and `ChainStatus.paused` (never produced but styled and captioned), `GalaxyCoordinate.distance` (unwired). | Medium | Phase 1 (workforce), §5 |
-| **S12** | **Backgrounds re-randomise on body evaluation.** `VoidBackground` (40 stars) and `PlanetBackdrop` (14 ellipses) call `.random` inside `body`. Harmless before the tick loop existed. **Verify on device**; fix is cheap either way — hoist into `@State`. | Medium | Quick fix |
+| **S11** | **Unenforced fields:** `requiredTier` (never checked), `workforceAssigned/Required` (display only; Tool Fab seeded 5/6), `providesWorkforce` (unused), `LimitReason.workforce` (never produced but styled and captioned), `GalaxyCoordinate.distance` (unwired). **`ChainStatus.paused` is now produced** (Phase 1a, 28 Aug 2026) — `outputPercent == 0` reports it; the rest of this row is still open. | Medium | Phase 1 (workforce), §5 |
+| **S12** | **Resolved, Phase 1a (28 Aug 2026).** `VoidBackground` (40 stars) and `PlanetBackdrop` (14 ellipses) called `.random` inside `body`, re-rolling on every tick-driven re-evaluation. Fixed with `@State`, seeded once — a first attempt using a plain `let` computed in `init` looked right in a static preview but still re-rolled every tick, because SwiftUI reconstructs the view (re-running `init`) on every parent re-render. See §23. | — | Done |
 | **S13** | **Doc drift** — resolved by this document. Recorded in §21 for the record. | — | Done |
 | **S14** | **Minor:** duplicate `.navigationDestination` registration for `ChainDetail.ID`; `ContentView` is a pure passthrough; ticker attached to `GlassTabBar` (hide the bar and time stops); `kepler-7` has `travelTimeMinutes: 0`; `ChainDetail.id = UUID()` contradicts the slug-id decision and will orphan nav references once persistence lands. | Low | Opportunistic |
-| **S15** | **The "running" tolerance is too tight for a flowing economy.** `resolveStatus` reports `.running` only when the tightest factor is ≥ `1 - 0.001`. Once a sink exists the colony sits in permanent near-equilibrium, and chains at **99.5% throughput report "Limited by Raw Ice" in amber**. Measured: 8 of 10 chains at 99–100% throughput, all flagged limited, 100% of ticks. Invisible today only because the saturated economy pins everything at 0 or 1. **The colony screen will go amber almost everywhere the moment quota lands.** Fix: widen the tolerance (~0.02), and drive the status tint from `throughput` rather than from the binary status. | High — lands with quota | Phase 1 |
+| **S15** | **Resolved, Phase 1a (28 Aug 2026).** `resolveStatus` compared achieved throughput to `1.0` with a `0.001` tolerance, so chains at 99.5% throughput reported "Limited" in amber — measured at 8 of 10 chains, 100% of ticks, once a sink existed. Fixed: status is now measured against `outputPercent` (`attainment = achieved ÷ outputPercent`), tolerance widened to `0.02`. Verified: with the debug sink on and all chains at 100%, exactly two — Alloy Tool Fab and Cell Factory — read amber, both "Limited by Refined Alloy", the real structural bottleneck. | — | Done |
 
 ### What's working, and worth protecting
 
@@ -931,7 +931,7 @@ original ordering are marked **▲**.
 Split `rateMultiplier` into `economyRate`/`fleetRate`; Empire/Colony split;
 restore `PlanetBackdrop`; wire material costs into `BuildCost`; multiplayer hedges.
 
-### Phase 1 — Unified throughput *(in progress — more done than the old docs said)*
+### Phase 1 — Unified throughput *(Output % complete; workforce still pending)*
 
 | Item | Status |
 |---|---|
@@ -939,22 +939,24 @@ restore `PlanetBackdrop`; wire material costs into `BuildCost`; multiplayer hedg
 | Universal proportional allocation | ✅ |
 | Energy as a live per-colony balance | ✅ |
 | One combination rule | ✅ **multiply** — settled in code, recorded here for the first time |
-| **Player-set output % per chain** | ❌ **do this first** |
+| **Player-set output % per chain** | ✅ **Phase 1a, 28 Aug 2026** |
 | Workforce as a factor | ❌ scaffold only |
 | UI: Grid readout, per-chain throughput | ◐ partial |
 
-Also in Phase 1: fix S6 (grid demand), S7 (two grid factors), S12 (backgrounds).
+**Phase 1a is complete** (28 Aug 2026, six commits — `briefs/phase-1a-output-percent.md`).
+Shipped output %, and in the same lines of code, fixed S6 (grid demand), S7 (two
+grid factors), S12 (backgrounds), and S15 (status tolerance). See §18 for each.
 
-**▲ Output % moves to the front of Phase 1** — but it does **not** close S1, and
-an earlier version of this document (and the audit) claimed it did. Corrected by
+**▲ Output % moved to the front of Phase 1** — but it did **not** close S1, and
+an earlier version of this document (and the audit) claimed it would. Corrected by
 simulation, 28 Aug: in a saturated economy, throttling a chain changes only which
 store is full. Refined Alloy sits at 149/150 whether the Tool Fab runs at 100% or
 0%. Output % closes **S2** — it is the first real decision the player gets — but
 the lever moves nothing until something is pulling goods out of the colony.
 
-Consequence: Phase 1a ships a **temporary debug sink** so the feature is testable
-and feelable at all, removed when Quota lands in Phase 2. See
-`briefs/phase-1a-output-percent.md`.
+Consequence: Phase 1a shipped a **temporary debug sink** (`Models/DebugSink.swift`)
+so the feature is testable and feelable at all. **It is scaffolding, flagged as
+such in its own doc comment, and must be deleted when Quota lands in Phase 2.**
 
 Workforce follows — the more interesting mechanic, the less urgent one.
 
@@ -1211,6 +1213,42 @@ interpolate.
 **Two pacing multipliers, not one.** Economy and fleet, split before dialling
 either.
 
+### Implementation — Phase 1a (28 Aug 2026)
+
+**Status compares achieved throughput to what was requested, not to 1.0.**
+`resolveStatus` computes `attainment = achieved ÷ outputPercent` and checks that
+against a widened tolerance (`0.02`, up from `0.001`). **Rejected:** leaving the
+comparison against `1.0` — a throttled chain running exactly at its requested
+rate would always report `Limited`, which is backwards. S15.
+
+**Output % is five discrete stops (0/25/50/75/100%), not a continuous slider.**
+This is a phone; coarse touch targets beat precision here.
+
+**Grid demand scales by `outputPercent`, not just `outputCap`.** Otherwise
+throttling a chain never freed power for the rest of the colony — the whole
+point of S6. The desired-rate calculation in `ProductionAllocator.allocate` and
+the grid-demand sum in `run` share the same `outputPercent` multiplier, which is
+also what makes it apply to energy producers automatically — they go through
+the same `allocate`, no special-casing needed.
+
+**`ProductionAllocator.run` returns the grid factor it used; `Colony.gridFactor`
+stores it rather than recomputing it.** Closes S7. The two numbers were always
+mathematically identical (same formula, same inputs) — the fix removes the
+duplicate computation path before it has a chance to drift, not a live bug.
+
+**Fixing S12 needed `@State`, not just moving `.random` out of `body`.** First
+attempt hoisted the random generation into a plain `let` computed in a custom
+`init` — looked right in a static preview, but SwiftUI reconstructs a view
+struct (re-running `init`) every time its parent's body re-evaluates, which is
+every tick here. A plain `let` has no memory across that reconstruction; only
+`@State`'s persistent, identity-keyed storage survives it. Caught by testing on
+device, not by review — see §23.
+
+**The output-% caption is always visible, not just when throughput and request
+diverge.** Rejected: conditional display — it flickered in and out within a tick
+or two of tapping a stop (throughput catches up almost immediately), which read
+as broken rather than confirming what was just set.
+
 ### Explicitly not taking
 
 From `OGAME_COMPARISON.md` §4:
@@ -1291,7 +1329,11 @@ id from the injected state.
 exercised — then seed data changed and that path went untested. `.paused` and
 `LimitReason.workforce` are now in the same condition. Verify fresh when activating.
 
-**Randomness in a SwiftUI `body` re-rolls on every evaluation.** See §18 S12.
+**Randomness in a SwiftUI `body` re-rolls on every evaluation — and so does
+randomness in a plain `let` computed in `init`.** A view struct is reconstructed
+(`init` re-run) every time its parent's body re-evaluates, not only when its own
+`body` is read. Only `@State`'s persistent, identity-keyed storage survives that
+reconstruction. Caught by testing on device, not by review. See §18 S12.
 
 ---
 ---
@@ -1308,7 +1350,7 @@ Condensed conclusions. Full analysis, formulas and trade-offs in
 | Production factor (energy throttle) | **Taken** | §9 — built |
 | Universal proportional allocation | **Taken** (option B) | §8 — built |
 | Two pacing multipliers | **Taken** | §14 — built |
-| Per-mine output % | **Taken** | Phase 1 — not built |
+| Per-mine output % | **Taken** | Phase 1a — built |
 | Loading is a withdrawal | **Taken** | Phase 3 |
 | Levels, `1.1`/`1.5` exponents | **Taken**, on `Building` | Phase 5 |
 | Fields → plot cap | **Taken**, as Writs | Phase 5 |
