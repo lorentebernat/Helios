@@ -56,6 +56,11 @@ struct Colony: Identifiable {
         gridDemand = grid.demand
         gridFactor = grid.factor
 
+        // TEMPORARY Phase 1 scaffolding, removed when Quota lands in Phase 2.
+        // Without it the economy saturates and output % has no visible
+        // effect. See DebugSink.swift. HELIOS.md §18 S1.
+        DebugSink.applyTick(stock: &stock, economyRate: economyRate)
+
         return advanceShipyard(fleetRate: fleetRate)
     }
 
