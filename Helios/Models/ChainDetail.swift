@@ -13,7 +13,7 @@ struct ChainDetail: Hashable, Identifiable {
     var output: ChainFlow?
     var energyProduced: Double         // per minute at full throughput
     var energyRequired: Double         // per minute at full throughput
-    var workforceAssigned: Int         // stage 1c makes this computed
+    var workforceAssigned: Int         // display only for now — Phase 1b makes this computed from actual staffing
     let workforceRequired: Int
     let requiredTier: ColonistTier
     var status: ChainStatus

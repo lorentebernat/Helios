@@ -9,37 +9,55 @@ struct PlanetBackdrop: View {
     var bandColor: Color
     var rotationDuration: Double   // seconds per full "rotation"
 
-    @State private var scrollX: CGFloat = 0
+    // Identifies which planet this is, so its surface texture is stable
+    // across re-renders and view-identity resets but still differs between
+    // worlds. HELIOS.md §18 S12 (second half): the surface blobs used to be
+    // regenerated with `@State`, which is stable only for the lifetime of a
+    // single view identity — meaning MainColonyView's planet re-rolled every
+    // time you switched tabs and back, and every DestinationCard re-rolled
+    // on every render. Deriving the blobs from a seed instead makes them a
+    // pure function of "which planet is this", so identity resets no longer
+    // matter at all — nothing needs to persist.
+    var seed: Int
 
-    // @State, not a plain let: MainColonyView's body re-evaluates on every
-    // tick, which re-runs this struct's initializer. A plain `let` computed
-    // in init has no memory across that reconstruction, so it silently
-    // re-rolled every tick — that was the actual bug, not just "not enough
-    // randomness moved out of body". @State's storage persists across
-    // reconstruction, keyed to this view's identity in the tree: the
-    // `initialValue` passed in `init` below is used only the very first
-    // time this view is created, and ignored on every subsequent tick's
-    // reconstruction. HELIOS.md §18 S12.
-    @State private var surfaceBlobs: [SurfaceBlob]
+    @State private var scrollX: CGFloat = 0
 
     init(
         diameter: CGFloat = 340,
         baseColor: Color = Color(red: 0.35, green: 0.55, blue: 0.75),
         bandColor: Color = Color(red: 0.15, green: 0.30, blue: 0.45),
-        rotationDuration: Double = 40
+        rotationDuration: Double = 40,
+        seed: Int = 0
     ) {
         self.diameter = diameter
         self.baseColor = baseColor
         self.bandColor = bandColor
         self.rotationDuration = rotationDuration
-        _surfaceBlobs = State(initialValue: (0..<14).map { i in
+        self.seed = seed
+    }
+
+    // Deterministic from `seed` alone — same seed always yields the same 14
+    // blobs, so this is safe to recompute on every body evaluation (every
+    // tick) without drifting or needing @State.
+    //
+    // NOTE: call sites currently seed from `String.hashValue` (e.g.
+    // `destination.id.hashValue`), which Swift explicitly does NOT guarantee
+    // stable across process launches (it's randomised per-launch to resist
+    // hash-flooding). That's fine here — within one launch a given planet
+    // stays consistent, which is all "looks the same every time you open it"
+    // requires *within a session*. Do not "fix" this by assuming hashValue
+    // is stable across launches. If cross-launch stability is ever wanted,
+    // seed from the summed UTF-8 bytes of the id instead.
+    private var surfaceBlobs: [SurfaceBlob] {
+        var rng = SeededGenerator(seed: seed)
+        return (0..<14).map { i in
             SurfaceBlob(
-                width: CGFloat.random(in: 40...140),
-                height: CGFloat.random(in: 20...60),
-                x: CGFloat(i) * (diameter * 2.2 / 14) + CGFloat.random(in: -20...20),
-                y: CGFloat.random(in: 20...(diameter - 20))
+                width: CGFloat.random(in: 40...140, using: &rng),
+                height: CGFloat.random(in: 20...60, using: &rng),
+                x: CGFloat(i) * (diameter * 2.2 / 14) + CGFloat.random(in: -20...20, using: &rng),
+                y: CGFloat.random(in: 20...(diameter - 20), using: &rng)
             )
-        })
+        }
     }
 
     var body: some View {
@@ -125,6 +143,6 @@ struct PlanetBackdrop: View {
 #Preview {
     ZStack {
         Color.black.ignoresSafeArea()
-        PlanetBackdrop()
+        PlanetBackdrop(seed: 42)
     }
 }

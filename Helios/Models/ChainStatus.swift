@@ -10,7 +10,7 @@ enum ChainStatus: Hashable {
     case running                    // unconstrained (may still be below 100% by player choice)
     case limited(LimitReason)       // throttled; zero throughput is just the extreme
     case stalled                    // output store full, nowhere to put product
-    case paused                     // player set output to 0% — wired in stage 1d
+    case paused                     // player deliberately set output to 0%
 
     var isNominal: Bool {
         if case .running = self { return true }

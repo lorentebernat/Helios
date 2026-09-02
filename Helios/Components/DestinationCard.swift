@@ -18,7 +18,8 @@ struct DestinationCard: View {
                 diameter: 54,
                 baseColor: destination.worldType.baseColor,
                 bandColor: destination.worldType.bandColor,
-                rotationDuration: 22
+                rotationDuration: 22,
+                seed: destination.id.hashValue
             )
             .frame(width: 54, height: 54)
 

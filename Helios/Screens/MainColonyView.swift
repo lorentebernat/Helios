@@ -22,7 +22,8 @@ struct MainColonyView: View {
             PlanetBackdrop(
                 diameter: 380,
                 baseColor: game.activeColony.worldType?.baseColor ?? GameTheme.accent,
-                bandColor: game.activeColony.worldType?.bandColor ?? GameTheme.voidTop
+                bandColor: game.activeColony.worldType?.bandColor ?? GameTheme.voidTop,
+                seed: game.activeColony.id.hashValue
             )
             .offset(y: -50)
 

@@ -14,6 +14,6 @@ import Foundation
 
 enum LimitReason: Hashable {
     case input(Resource.ID)
-    case power        // wired in stage 1b
-    case workforce    // wired in stage 1c
+    case power        // live — ProductionAllocator's grid factor binds this (HELIOS.md §9)
+    case workforce     // not yet produced — waiting on Phase 1b, workforce as a throughput factor
 }

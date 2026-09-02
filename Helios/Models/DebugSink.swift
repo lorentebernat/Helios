@@ -9,7 +9,14 @@
 import Foundation
 
 enum DebugSink {
+    // Guarded so this never ships in a release build by accident — it's
+    // temporary scaffolding that drains a colony's stores, not a real
+    // gameplay mechanic. HELIOS.md §19 Phase 1.5 cleanup.
+    #if DEBUG
     static let enabled = true
+    #else
+    static let enabled = false
+    #endif
 
     /// Per-good drain rate at "load 1.0" — the measured export capacity
     /// (production net of colonist consumption) from HELIOS.md Appendix C,
