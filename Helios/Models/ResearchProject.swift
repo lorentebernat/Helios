@@ -27,7 +27,7 @@ enum ResearchStatus: Equatable {
 }
 
 struct ResearchProject: Identifiable {
-    let id = UUID()
+    let id: ResearchID
     let icon: String
     let name: String
     let summary: String
@@ -44,15 +44,15 @@ struct ResearchProject: Identifiable {
     }
 
     static let samples: [ResearchProject] = [
-        .init(icon: "bolt.fill", name: "Efficient Power Routing", summary: "+15% output on all Power chains",
+        .init(id: "efficient-power-routing", icon: "bolt.fill", name: "Efficient Power Routing", summary: "+15% output on all Power chains",
               category: .production, pointCost: 400, status: .inProgress(pointsInvested: 260)),
-        .init(icon: "shippingbox.fill", name: "Reinforced Cargo Holds", summary: "+20% freighter capacity",
+        .init(id: "reinforced-cargo-holds", icon: "shippingbox.fill", name: "Reinforced Cargo Holds", summary: "+20% freighter capacity",
               category: .fleet, pointCost: 250, status: .available),
-        .init(icon: "shield.fill", name: "Adaptive Plating", summary: "+10% escort hull strength",
+        .init(id: "adaptive-plating", icon: "shield.fill", name: "Adaptive Plating", summary: "+10% escort hull strength",
               category: .defense, pointCost: 500, status: .locked(requiredTier: "Settlers")),
-        .init(icon: "leaf.fill", name: "Closed-Loop Recycling", summary: "Oxygen chains consume 25% less input",
+        .init(id: "closed-loop-recycling", icon: "leaf.fill", name: "Closed-Loop Recycling", summary: "Oxygen chains consume 25% less input",
               category: .habitat, pointCost: 300, status: .completed),
-        .init(icon: "wrench.and.screwdriver.fill", name: "Alloy Synthesis II", summary: "Unlocks Refined Alloy chain",
+        .init(id: "alloy-synthesis-ii", icon: "wrench.and.screwdriver.fill", name: "Alloy Synthesis II", summary: "Unlocks Refined Alloy chain",
               category: .production, pointCost: 600, status: .locked(requiredTier: "Settlers"))
     ]
 }

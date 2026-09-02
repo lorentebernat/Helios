@@ -6,7 +6,7 @@
 import Foundation
 
 struct ChainDetail: Hashable, Identifiable {
-    let id = UUID()
+    let id: ChainID
     let icon: String
     let name: String
     var inputs: [ChainFlow]
@@ -36,11 +36,19 @@ struct ChainDetail: Hashable, Identifiable {
     var statusNote: String { status.note }
     var throughputPercent: Int { Int((throughput * 100).rounded()) }
 
+    /// Looks up the authored blueprint for a chain id. Used to rehydrate a
+    /// saved chain's fixed fields (name, icon, rates, energy figures) around
+    /// its saved mutable state — a save stores ids and mutable fields only,
+    /// never authored data. HELIOS.md §18 S14, Phase 1.5 Step 5.
+    static func blueprint(for id: ChainID) -> ChainDetail? {
+        samples.first { $0.id == id }
+    }
+
     // MARK: - Seed network
 
     static let samples: [ChainDetail] = [
         // Extraction
-        .init(icon: "snowflake", name: "Ice Harvester",
+        .init(id: "ice-harvester", icon: "snowflake", name: "Ice Harvester",
               inputs: [],
               output: ChainFlow(resourceID: "raw-ice", ratePerMin: 20),
               energyProduced: 0, energyRequired: 10,
@@ -48,7 +56,7 @@ struct ChainDetail: Hashable, Identifiable {
               requiredTier: .survivors, status: .running, throughput: 1,
               outputPercent: 1),
 
-        .init(icon: "cube.fill", name: "Ore Extractor",
+        .init(id: "ore-extractor", icon: "cube.fill", name: "Ore Extractor",
               inputs: [],
               output: ChainFlow(resourceID: "raw-ore", ratePerMin: 15),
               energyProduced: 0, energyRequired: 12,
@@ -57,7 +65,7 @@ struct ChainDetail: Hashable, Identifiable {
               outputPercent: 1),
 
         // Energy — no material output by design
-        .init(icon: "bolt.fill", name: "Power Plant",
+        .init(id: "power-plant", icon: "bolt.fill", name: "Power Plant",
               inputs: [],
               output: nil,
               energyProduced: 240, energyRequired: 0,
@@ -66,7 +74,7 @@ struct ChainDetail: Hashable, Identifiable {
               outputPercent: 1),
 
         // Refining
-        .init(icon: "drop.fill", name: "Water Reclaimer",
+        .init(id: "water-reclaimer", icon: "drop.fill", name: "Water Reclaimer",
               inputs: [ChainFlow(resourceID: "raw-ice", ratePerMin: 8)],
               output: ChainFlow(resourceID: "water", ratePerMin: 12),
               energyProduced: 0, energyRequired: 15,
@@ -74,7 +82,7 @@ struct ChainDetail: Hashable, Identifiable {
               requiredTier: .survivors, status: .running, throughput: 1,
               outputPercent: 1),
 
-        .init(icon: "wind", name: "Oxygen Recycler",
+        .init(id: "oxygen-recycler", icon: "wind", name: "Oxygen Recycler",
               inputs: [ChainFlow(resourceID: "raw-ice", ratePerMin: 10)],
               output: ChainFlow(resourceID: "oxygen", ratePerMin: 12),
               energyProduced: 0, energyRequired: 15,
@@ -82,7 +90,7 @@ struct ChainDetail: Hashable, Identifiable {
               requiredTier: .survivors, status: .running, throughput: 1,
               outputPercent: 1),
 
-        .init(icon: "leaf.fill", name: "Hydroponics Bay",
+        .init(id: "hydroponics-bay", icon: "leaf.fill", name: "Hydroponics Bay",
               inputs: [ChainFlow(resourceID: "water", ratePerMin: 6)],
               output: ChainFlow(resourceID: "grain", ratePerMin: 10),
               energyProduced: 0, energyRequired: 18,
@@ -91,7 +99,7 @@ struct ChainDetail: Hashable, Identifiable {
               outputPercent: 1),
 
         // Manufacturing
-        .init(icon: "fork.knife", name: "Ration Bar Synth",
+        .init(id: "ration-bar-synth", icon: "fork.knife", name: "Ration Bar Synth",
               inputs: [
                 ChainFlow(resourceID: "grain", ratePerMin: 8),
                 ChainFlow(resourceID: "water", ratePerMin: 4)
@@ -102,7 +110,7 @@ struct ChainDetail: Hashable, Identifiable {
               requiredTier: .survivors, status: .running, throughput: 1,
               outputPercent: 1),
 
-        .init(icon: "flame.fill", name: "Alloy Smelter",
+        .init(id: "alloy-smelter", icon: "flame.fill", name: "Alloy Smelter",
               inputs: [ChainFlow(resourceID: "raw-ore", ratePerMin: 10)],
               output: ChainFlow(resourceID: "refined-alloy", ratePerMin: 7),
               energyProduced: 0, energyRequired: 30,
@@ -110,7 +118,7 @@ struct ChainDetail: Hashable, Identifiable {
               requiredTier: .settlers, status: .running, throughput: 1,
               outputPercent: 1),
 
-        .init(icon: "wrench.and.screwdriver.fill", name: "Alloy Tool Fab",
+        .init(id: "alloy-tool-fab", icon: "wrench.and.screwdriver.fill", name: "Alloy Tool Fab",
               inputs: [ChainFlow(resourceID: "refined-alloy", ratePerMin: 5)],
               output: ChainFlow(resourceID: "alloy-tools", ratePerMin: 4),
               energyProduced: 0, energyRequired: 25,
@@ -118,7 +126,7 @@ struct ChainDetail: Hashable, Identifiable {
               requiredTier: .settlers, status: .running, throughput: 1,
               outputPercent: 1),
 
-        .init(icon: "battery.100.bolt", name: "Cell Factory",
+        .init(id: "cell-factory", icon: "battery.100.bolt", name: "Cell Factory",
               inputs: [ChainFlow(resourceID: "refined-alloy", ratePerMin: 3)],
               output: ChainFlow(resourceID: "power-cells", ratePerMin: 6),
               energyProduced: 0, energyRequired: 25,

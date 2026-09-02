@@ -1,5 +1,10 @@
 // ProductionListView.swift
 // Root screen for the Production tab: full list of chains, tap to see detail.
+//
+// Does NOT register .navigationDestination(for: ChainDetail.ID.self) itself —
+// that's owned once per NavigationStack by whichever screen hosts the stack
+// (RootView, for both tab 0 and tab 1). Registering it here too used to
+// silently duplicate the tab-1 registration. HELIOS.md §18 S14.
 
 import SwiftUI
 
@@ -36,15 +41,15 @@ struct ProductionListView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .navigationDestination(for: ChainDetail.ID.self) { id in
-            ProductionDetailView(chainID: id)
-        }
     }
 }
 
 #Preview {
     NavigationStack {
         ProductionListView()
+            .navigationDestination(for: ChainDetail.ID.self) { id in
+                ProductionDetailView(chainID: id)
+            }
     }
     .environment(GameState.seeded())
 }

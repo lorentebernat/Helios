@@ -32,8 +32,19 @@ struct RootView: View {
                         }
                 }
             case 1:
+                // Registered here rather than inside ProductionListView, so
+                // each NavigationStack registers ChainDetail.ID exactly once.
+                // Previously ProductionListView registered it itself AND
+                // RootView registered it again for tab 0 — harmless only
+                // because when ProductionListView was pushed into tab 0's
+                // stack, the duplicate silently "won" by being last. Exactly
+                // the shape of the silent-navigation-failure gotcha, just not
+                // yet triggered. HELIOS.md §18 S14, §23.
                 NavigationStack {
                     ProductionListView()
+                        .navigationDestination(for: ChainDetail.ID.self) { id in
+                            ProductionDetailView(chainID: id)
+                        }
                 }
             case 2:
                 NavigationStack {
@@ -63,4 +74,3 @@ struct RootView: View {
     RootView()
         .environment(GameState.seeded())
 }
-
