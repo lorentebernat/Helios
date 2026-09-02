@@ -87,7 +87,8 @@ final class GameState {
         for i in colonies.indices {
             let finished = colonies[i].applyTick(
                 economyRate: Self.economyRate,
-                fleetRate: Self.fleetRate
+                fleetRate: Self.fleetRate,
+                applyDebugSink: DebugSink.enabled
             )
             let colonyID = colonies[i].id
             for order in finished {

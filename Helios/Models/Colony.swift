@@ -43,7 +43,14 @@ struct Colony: Identifiable {
     /// Advances this colony one tick. Returns any ship build orders that
     /// completed, for the empire to turn into actual ships — ships are
     /// empire-scoped, so the colony can't create them itself.
-    mutating func applyTick(economyRate: Double, fleetRate: Double) -> [ShipBuildOrder] {
+    ///
+    /// `applyDebugSink` is threaded in rather than read from a mutable
+    /// static, because Swift Testing runs tests in parallel by default —
+    /// a shared `DebugSink.enabled` toggle would be flaky. `GameState.tick()`
+    /// passes `DebugSink.enabled`; tests pass `true`/`false` explicitly.
+    /// HELIOS.md §18 S8.
+    @discardableResult
+    mutating func applyTick(economyRate: Double, fleetRate: Double, applyDebugSink: Bool = true) -> [ShipBuildOrder] {
         // Colonists eat before industry runs.
         population.applyTick(stock: &stock, minutesPerTick: economyRate)
 
@@ -59,7 +66,9 @@ struct Colony: Identifiable {
         // TEMPORARY Phase 1 scaffolding, removed when Quota lands in Phase 2.
         // Without it the economy saturates and output % has no visible
         // effect. See DebugSink.swift. HELIOS.md §18 S1.
-        DebugSink.applyTick(stock: &stock, economyRate: economyRate)
+        if applyDebugSink {
+            DebugSink.applyTick(stock: &stock, economyRate: economyRate)
+        }
 
         return advanceShipyard(fleetRate: fleetRate)
     }
