@@ -25,6 +25,12 @@ enum ShipNameGenerator {
         "Signal", "Passage", "Tide", "Harbour", "Bearing"
     ]
 
+    /// Called from `GameState.queueShip`, a UI action triggered by the
+    /// player tapping "Build" — never from `tick()`. That's what makes this
+    /// fine despite being unseeded randomness: HELIOS.md §14's "no randomness
+    /// inside tick()" hedge is about the pure simulation step being replayable
+    /// and reconcilable, and a name picked once at order time doesn't affect
+    /// that — it's baked into the ShipBuildOrder before tick() ever touches it.
     static func random() -> String {
         "\(first.randomElement() ?? "Pale") \(second.randomElement() ?? "Comet")"
     }

@@ -108,7 +108,7 @@ enum ShipStatus: Hashable {
 }
 
 struct Ship: Identifiable, Hashable {
-    let id = UUID()
+    let id: ShipID
     var name: String
     let role: ShipRole
     var status: ShipStatus
@@ -138,20 +138,22 @@ struct Ship: Identifiable, Hashable {
         }
     }
 
+    // Serials 1...5 — the seed fleet, hand-numbered so GameState.seeded()
+    // starts nextShipSerial at 6. HELIOS.md §18 S5.
     static let samples: [Ship] = [
-        Ship(name: "Meridian Hauler", role: .freighter, status: .inTransit,
+        Ship(id: ShipID(serial: 1), name: "Meridian Hauler", role: .freighter, status: .inTransit,
              locationID: "vesta", destinationID: "kepler-7",
              remainingMinutes: 12, cargoNote: "Refined Alloy ×80"),
-        Ship(name: "Dust Runner", role: .freighter, status: .idle,
+        Ship(id: ShipID(serial: 2), name: "Dust Runner", role: .freighter, status: .idle,
              locationID: "vesta", destinationID: nil,
              remainingMinutes: 0, cargoNote: "Empty hold"),
-        Ship(name: "Pale Comet", role: .scout, status: .inTransit,
+        Ship(id: ShipID(serial: 3), name: "Pale Comet", role: .scout, status: .inTransit,
              locationID: "kepler-7", destinationID: "sector-12",
              remainingMinutes: 34, cargoNote: nil),
-        Ship(name: "Ironwatch", role: .escort, status: .idle,
+        Ship(id: ShipID(serial: 4), name: "Ironwatch", role: .escort, status: .idle,
              locationID: "kepler-7", destinationID: nil,
              remainingMinutes: 0, cargoNote: nil),
-        Ship(name: "Long Horizon", role: .explorer, status: .inTransit,
+        Ship(id: ShipID(serial: 5), name: "Long Horizon", role: .explorer, status: .inTransit,
              locationID: "kepler-7", destinationID: "anomaly",
              remainingMinutes: 210, cargoNote: "Survey equipment")
     ]

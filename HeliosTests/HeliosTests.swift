@@ -241,4 +241,49 @@ struct HeliosTests {
         #expect((settlers?.happiness ?? 1) < 1, "settlers should be unhappy — alloy-tools is unavailable")
         #expect(engineers?.count == 0, "no promotion should occur while happiness is below 1")
     }
+
+    // MARK: - S5: no randomness inside tick()
+
+    /// Two independently-seeded states, given the exact same sequence of
+    /// actions, must produce byte-identical results — including ship ids.
+    /// This is the property Phase 4's offline replay and Phase 9's server
+    /// reconciliation both depend on; it would have caught `Ship.id = UUID()`
+    /// generated inside tick() immediately, since the two runs would have
+    /// diverged the moment a build order completed. HELIOS.md §18 S5.
+    @Test func tickIsDeterministic() {
+        let a = GameState.seeded()
+        let b = GameState.seeded()
+
+        // The seed colony starts with zero Refined Alloy by design (HELIOS.md
+        // Appendix C: "Tool Fab starts blocked"), so no ship role is
+        // affordable at tick 0. Deposit identically into both colonies so
+        // queueShip succeeds the same way in both runs.
+        a.colonies[0].stock.deposit("refined-alloy", 100)
+        b.colonies[0].stock.deposit("refined-alloy", 100)
+
+        #expect(a.queueShip(role: .scout, name: "Test Scout"))
+        #expect(b.queueShip(role: .scout, name: "Test Scout"))
+
+        // 200 ticks comfortably clears the scout's 5-minute build time (at
+        // economyRate/fleetRate 1.0, 1 tick == 1 game-minute), so both
+        // runs mint a new ship mid-run and keep ticking afterward.
+        for _ in 0..<200 {
+            a.tick()
+            b.tick()
+        }
+
+        let colonyA = a.colonies[0]
+        let colonyB = b.colonies[0]
+
+        for id in Resource.all.map(\.id) {
+            #expect(colonyA.stock.amount(of: id) == colonyB.stock.amount(of: id),
+                     "stock diverged for \(id)")
+        }
+
+        #expect(colonyA.productionChains.map(\.throughput) == colonyB.productionChains.map(\.throughput),
+                "throughputs diverged")
+
+        #expect(a.ships.map(\.id) == b.ships.map(\.id), "ship ids diverged")
+        #expect(a.ships.count == 6, "expected the seed fleet of 5 plus the one queued ship")
+    }
 }

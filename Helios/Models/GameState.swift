@@ -15,6 +15,11 @@ final class GameState {
     var credits: Int
     var ships: [Ship]
 
+    /// Monotonic counter — the sole source of new ShipIDs. Never reused, never
+    /// decremented. Part of saved state (Phase 1.5 Step 5) so a relaunch
+    /// can't reissue an id already in use. HELIOS.md §18 S5.
+    var nextShipSerial: Int
+
     // Research (empire-wide — the global/local split is a Phase 5 decision)
     var researchProjects: [ResearchProject]
     var researchPoints: Int
@@ -28,6 +33,7 @@ final class GameState {
         activeColonyID: Colony.ID,
         credits: Int,
         ships: [Ship],
+        nextShipSerial: Int,
         researchProjects: [ResearchProject],
         researchPoints: Int,
         researchRatePerMin: Int
@@ -36,6 +42,7 @@ final class GameState {
         self.activeColonyID = activeColonyID
         self.credits = credits
         self.ships = ships
+        self.nextShipSerial = nextShipSerial
         self.researchProjects = researchProjects
         self.researchPoints = researchPoints
         self.researchRatePerMin = researchRatePerMin
@@ -47,6 +54,7 @@ final class GameState {
             activeColonyID: "kepler-7",
             credits: 2_340,
             ships: Ship.samples,
+            nextShipSerial: 6,   // seed fleet hand-numbered 1...5 (Ship.swift)
             researchProjects: ResearchProject.samples,
             researchPoints: 1_840,
             researchRatePerMin: 12
@@ -81,8 +89,10 @@ final class GameState {
         lastTickAt = now
     }
 
-    /// One pure simulation step — reads no clock, so Phase 3 can replay it in a
-    /// loop for offline catch-up.
+    /// One pure simulation step — reads no clock and no randomness, so Phase 3
+    /// can replay it in a loop for offline catch-up and Phase 9 can reconcile
+    /// it against a server. Completed build orders get their ship id from
+    /// `nextShipSerial`, not `UUID()` — HELIOS.md §18 S5.
     func tick() {
         for i in colonies.indices {
             let finished = colonies[i].applyTick(
@@ -94,6 +104,7 @@ final class GameState {
             for order in finished {
                 ships.append(
                     Ship(
+                        id: nextShipID(),
                         name: order.name,
                         role: order.role,
                         status: .idle,
@@ -109,6 +120,14 @@ final class GameState {
         for i in ships.indices {
             ships[i].applyTick(minutesPerTick: Self.fleetRate)
         }
+    }
+
+    /// The only place a ShipID is minted. Monotonic, deterministic given the
+    /// same sequence of calls — no UUID, no randomness.
+    private func nextShipID() -> ShipID {
+        let id = ShipID(serial: nextShipSerial)
+        nextShipSerial += 1
+        return id
     }
 
     // MARK: - Actions
