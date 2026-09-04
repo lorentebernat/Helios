@@ -61,6 +61,41 @@ final class GameState {
         )
     }
 
+    // MARK: - Persistence (Phase 1.5 Step 5)
+
+    /// A `Codable` snapshot of everything worth saving. `GameState` itself
+    /// does not conform to `Codable` — it's an `@Observable` class bound to
+    /// UI object identity, not a value type — so persistence goes through
+    /// this computed property and the matching `init(save:)` instead.
+    var snapshot: GameSave {
+        GameSave(
+            colonies: colonies,
+            activeColonyID: activeColonyID,
+            credits: credits,
+            ships: ships,
+            nextShipSerial: nextShipSerial,
+            researchProjects: researchProjects,
+            researchPoints: researchPoints,
+            researchRatePerMin: researchRatePerMin,
+            lastTickAt: lastTickAt
+        )
+    }
+
+    /// Rebuilds a `GameState` from a decoded save.
+    convenience init(save: GameSave) {
+        self.init(
+            colonies: save.colonies,
+            activeColonyID: save.activeColonyID,
+            credits: save.credits,
+            ships: save.ships,
+            nextShipSerial: save.nextShipSerial,
+            researchProjects: save.researchProjects,
+            researchPoints: save.researchPoints,
+            researchRatePerMin: save.researchRatePerMin
+        )
+        self.lastTickAt = save.lastTickAt
+    }
+
     // MARK: - Active colony
 
     /// Index of the active colony. Colonies is never empty by construction.

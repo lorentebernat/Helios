@@ -12,10 +12,13 @@
 //
 // TIERS 3–5 ARE PLACEHOLDERS — their needs will be designed alongside the
 // fuller resource/chain network.
+//
+// Codable (Phase 1.5 Step 5): needed because `TierPopulation.tier` is part of
+// a colony's saved population state. Synthesised from the String raw value.
 
 import Foundation
 
-enum ColonistTier: String, CaseIterable, Hashable {
+enum ColonistTier: String, CaseIterable, Hashable, Codable {
     case survivors
     case settlers
     case engineers

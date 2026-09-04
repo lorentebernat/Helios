@@ -19,7 +19,9 @@ enum ResearchCategory: String, CaseIterable {
     }
 }
 
-enum ResearchStatus: Equatable {
+// Codable (Phase 1.5 Step 5): synthesised, via SE-0295 enum-with-associated-
+// values support — `status` is a project's saved mutable field.
+enum ResearchStatus: Equatable, Codable {
     case locked(requiredTier: String)
     case available
     case inProgress(pointsInvested: Int)
@@ -33,7 +35,10 @@ struct ResearchProject: Identifiable {
     let summary: String
     let category: ResearchCategory
     let pointCost: Int
-    let status: ResearchStatus
+
+    /// `var`, not `let`: Phase 1.5 Step 5's blueprint-overlay decode assigns
+    /// this after rehydrating everything else from `blueprint(for:)`.
+    var status: ResearchStatus
 
     var progress: Double {
         switch status {
@@ -41,6 +46,13 @@ struct ResearchProject: Identifiable {
         case .completed: return 1
         default: return 0
         }
+    }
+
+    /// Looks up the authored blueprint for a research project id — same
+    /// rationale as `ChainDetail.blueprint(for:)`. HELIOS.md §18 S14, Phase
+    /// 1.5 Step 5.
+    static func blueprint(for id: ResearchID) -> ResearchProject? {
+        samples.first { $0.id == id }
     }
 
     static let samples: [ResearchProject] = [
@@ -55,4 +67,41 @@ struct ResearchProject: Identifiable {
         .init(id: "alloy-synthesis-ii", icon: "wrench.and.screwdriver.fill", name: "Alloy Synthesis II", summary: "Unlocks Refined Alloy chain",
               category: .production, pointCost: 600, status: .locked(requiredTier: "Settlers"))
     ]
+}
+
+// MARK: - Codable (Phase 1.5 Step 5)
+
+// Same blueprint-overlay shape as ChainDetail: a save stores only `id` and
+// `status`; everything authored (name, icon, summary, category, cost) is
+// rehydrated from `blueprint(for:)`. Declared in an extension so the
+// compiler-synthesised memberwise initialiser (used by `samples` above)
+// stays intact. HELIOS.md §18 S14, §21.
+extension ResearchProject: Codable {
+    /// Thrown when a saved project's id no longer exists in `samples`. The
+    /// project should disappear from the save, not resurface as a husk;
+    /// `GameSave`'s decoder catches this per-project via `ResearchSlot` and
+    /// drops just that entry.
+    struct UnknownID: Error {
+        let id: ResearchID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, status
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(ResearchID.self, forKey: .id)
+        guard let blueprint = ResearchProject.blueprint(for: id) else {
+            throw UnknownID(id: id)
+        }
+        self = blueprint
+        self.status = try container.decode(ResearchStatus.self, forKey: .status)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(status, forKey: .status)
+    }
 }

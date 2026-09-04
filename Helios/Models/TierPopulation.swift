@@ -1,10 +1,13 @@
 // TierPopulation.swift
 // Runtime state for one rung of the ladder. Consumption is orchestrated by
 // Population, since allocation must be proportional across tiers.
+//
+// Codable (Phase 1.5 Step 5): synthesised — every stored property is already
+// Codable (ColonistTier gained Codable this step for exactly this reason).
 
 import Foundation
 
-struct TierPopulation: Identifiable, Hashable {
+struct TierPopulation: Identifiable, Hashable, Codable {
     let tier: ColonistTier
     var count: Double
     var capacity: Double

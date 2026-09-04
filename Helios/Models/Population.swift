@@ -1,10 +1,14 @@
 // Population.swift
 // The colony's population across the tier ladder. Consumption is allocated
 // proportionally across tiers, so no tier starves another by array order.
+//
+// Codable (Phase 1.5 Step 5): synthesised from the single `tiers` array — this
+// is mutable simulation state (headcounts, happiness), not authored data, so
+// it's saved as-is.
 
 import Foundation
 
-struct Population {
+struct Population: Codable {
     var tiers: [TierPopulation]
 
     // Tuning

@@ -2,10 +2,16 @@
 // Fleet vessel. Mutable transit data lives in FIELDS; ShipStatus carries no
 // associated values. Locations are Destination.ID references, resolved to
 // names by the view layer (components stay pure).
+//
+// Codable (Phase 1.5 Step 5): ShipRole and ShipStatus gain Codable (raw-value
+// and no-associated-value synthesis respectively); Ship itself is then a
+// synthesised struct Codable. A ship is genuinely mutable fleet state with no
+// registry blueprint, so it's saved in full — unlike ChainDetail/
+// ResearchProject's overlay pattern.
 
 import Foundation
 
-enum ShipRole: String, CaseIterable {
+enum ShipRole: String, CaseIterable, Codable {
     case freighter = "Freighter"
     case scout = "Scout"
     case escort = "Escort"
@@ -98,7 +104,7 @@ enum ShipRole: String, CaseIterable {
     }
 }
 
-enum ShipStatus: Hashable {
+enum ShipStatus: Hashable, Codable {
     case idle       // no orders — awaiting assignment (amber: wasted capacity)
     case docked     // RESERVED: at a stop on an assigned trade route. Not yet
                     // reachable in code — activate when trade routes land.
@@ -107,7 +113,7 @@ enum ShipStatus: Hashable {
     var isIdle: Bool { self == .idle }
 }
 
-struct Ship: Identifiable, Hashable {
+struct Ship: Identifiable, Hashable, Codable {
     let id: ShipID
     var name: String
     let role: ShipRole

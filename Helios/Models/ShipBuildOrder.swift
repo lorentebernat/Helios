@@ -9,10 +9,16 @@
 // ShipBuildOrder.swift
 // A ship under construction in the shipyard queue. Becomes a real Ship on
 // completion.
+//
+// Codable (Phase 1.5 Step 5): synthesised. This is player-created mutable
+// state with no registry counterpart, so it's saved in full — including
+// `id`, which stays a UUID (unlike Ship.id/ShipID, nothing here needs to be
+// deterministic; a build order never appears inside `tick()`'s pure step,
+// only the queue it sits in does).
 
 import Foundation
 
-struct ShipBuildOrder: Identifiable, Hashable {
+struct ShipBuildOrder: Identifiable, Hashable, Codable {
     let id = UUID()
     var name: String
     let role: ShipRole

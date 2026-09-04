@@ -135,3 +135,49 @@ struct ChainDetail: Hashable, Identifiable {
               outputPercent: 1)
     ]
 }
+
+// MARK: - Codable (Phase 1.5 Step 5)
+
+// A hand-written conformance, not synthesis: a save stores only the mutable
+// slice of a chain (id, outputPercent, throughput, status) and rehydrates
+// everything authored (name, icon, rates, energy figures, required tier) from
+// `blueprint(for:)`. This is what lets a future rebalance of chain rates
+// reach players with an existing save, instead of freezing them on whatever
+// numbers were live when they last saved. HELIOS.md §18 S14, §21.
+//
+// Declared in an extension, not the struct body, so the compiler-synthesised
+// memberwise initialiser (used throughout `samples` above) stays intact —
+// only a custom init written inside the primary declaration would suppress it.
+extension ChainDetail: Codable {
+    /// Thrown when a saved chain's id no longer exists in `samples` — e.g. a
+    /// future rebalance retired it. The chain is meant to disappear from the
+    /// save, not be resurrected as a placeholder husk; `Colony`'s decoder
+    /// catches this per-chain via `ChainSlot` and drops just that entry.
+    struct UnknownID: Error {
+        let id: ChainID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, outputPercent, throughput, status
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(ChainID.self, forKey: .id)
+        guard let blueprint = ChainDetail.blueprint(for: id) else {
+            throw UnknownID(id: id)
+        }
+        self = blueprint
+        self.outputPercent = try container.decode(Double.self, forKey: .outputPercent)
+        self.throughput = try container.decode(Double.self, forKey: .throughput)
+        self.status = try container.decode(ChainStatus.self, forKey: .status)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(outputPercent, forKey: .outputPercent)
+        try container.encode(throughput, forKey: .throughput)
+        try container.encode(status, forKey: .status)
+    }
+}

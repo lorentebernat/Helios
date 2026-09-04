@@ -103,3 +103,57 @@ struct Colony: Identifiable {
         shipyardQueue: []
     )
 }
+
+// MARK: - Codable (Phase 1.5 Step 5)
+
+// A colony is genuinely mutable state — no registry blueprint to overlay —
+// so every field here is saved as-is. The one wrinkle is `productionChains`:
+// each element's own `Codable` throws `ChainDetail.UnknownID` if a chain was
+// retired from the registry since the save was written, and a colony should
+// simply drop that chain rather than fail to load entirely. `ChainSlot`
+// isolates the per-element decode so one bad chain can't sink the array.
+// HELIOS.md §18 S14, §21.
+//
+// Declared in an extension so the compiler-synthesised memberwise initialiser
+// (used by `seeded` above) stays intact.
+extension Colony: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, stock, population, productionChains, shipyardQueue
+        case gridSupply, gridDemand, gridFactor
+    }
+
+    /// Decodes one element of `productionChains`, converting a chain whose id
+    /// is no longer in the registry into `nil` instead of throwing and
+    /// failing the whole array.
+    private struct ChainSlot: Decodable {
+        let chain: ChainDetail?
+        init(from decoder: Decoder) throws {
+            chain = try? ChainDetail(from: decoder)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Destination.ID.self, forKey: .id)
+        stock = try container.decode(ColonyStock.self, forKey: .stock)
+        population = try container.decode(Population.self, forKey: .population)
+        let slots = try container.decode([ChainSlot].self, forKey: .productionChains)
+        productionChains = slots.compactMap(\.chain)
+        shipyardQueue = try container.decode([ShipBuildOrder].self, forKey: .shipyardQueue)
+        gridSupply = try container.decode(Double.self, forKey: .gridSupply)
+        gridDemand = try container.decode(Double.self, forKey: .gridDemand)
+        gridFactor = try container.decode(Double.self, forKey: .gridFactor)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(stock, forKey: .stock)
+        try container.encode(population, forKey: .population)
+        try container.encode(productionChains, forKey: .productionChains)
+        try container.encode(shipyardQueue, forKey: .shipyardQueue)
+        try container.encode(gridSupply, forKey: .gridSupply)
+        try container.encode(gridDemand, forKey: .gridDemand)
+        try container.encode(gridFactor, forKey: .gridFactor)
+    }
+}

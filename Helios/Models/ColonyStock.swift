@@ -9,10 +9,15 @@
 // ColonyStock.swift
 // Colony-wide resource pool. All chains draw from and deposit into this, which
 // is what makes chain interlinking emergent rather than declared.
+//
+// Codable (Phase 1.5 Step 5): synthesised from the single private `amounts`
+// dictionary — Resource.ID is a plain String, so no custom coding is needed.
+// This is genuinely mutable state (not authored data), so it's saved as-is,
+// unlike ChainDetail/ResearchProject's blueprint-overlay.
 
 import Foundation
 
-struct ColonyStock {
+struct ColonyStock: Codable {
     private var amounts: [Resource.ID: Double]
 
     init(_ seed: [Resource.ID: Double] = [:]) {
