@@ -1,3 +1,11 @@
+//
+//  Quota.swift
+//  Helios
+//
+//  Created by Bernat on 04/09/2026.
+//
+
+
 // Quota.swift
 // The Empire's mandatory demand: a manifest of named goods and amounts it
 // expects to leave your docks by a deadline.

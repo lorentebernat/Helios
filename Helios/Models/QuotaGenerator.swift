@@ -1,3 +1,11 @@
+//
+//  QuotaGenerator.swift
+//  Helios
+//
+//  Created by Bernat on 04/09/2026.
+//
+
+
 // QuotaGenerator.swift
 // How one manifest is sized. Pure, deterministic, no clock, no randomness:
 // the same colony at the same tick always produces the same manifest.
