@@ -61,7 +61,7 @@ final class GameState {
         )
     }
 
-    // MARK: - Persistence (Phase 1.5 Step 5)
+    // MARK: - Persistence (Phase 1.5 Steps 5–6)
 
     /// A `Codable` snapshot of everything worth saving. `GameState` itself
     /// does not conform to `Codable` — it's an `@Observable` class bound to
@@ -94,6 +94,29 @@ final class GameState {
             researchRatePerMin: save.researchRatePerMin
         )
         self.lastTickAt = save.lastTickAt
+    }
+
+    /// What `HeliosApp` calls at launch: the saved game if `SaveStore` has a
+    /// readable one, otherwise a fresh seeded game. Missing, corrupt, and
+    /// unsupported-version saves are all indistinguishable from "no save" by
+    /// the time they reach here — `SaveStore.load()` already sorted that out
+    /// and quarantined anything unreadable. HELIOS.md §18 S4.
+    static func load() -> GameState {
+        guard let save = SaveStore.load() else { return .seeded() }
+        let state = GameState(save: save)
+        // Elapsed real time between this save and now is discarded, not
+        // replayed. Offline catch-up is Phase 4, deliberately not this one —
+        // see the brief's scope guard.
+        state.lastTickAt = Date()
+        return state
+    }
+
+    /// Writes the current state to disk. `HeliosApp` calls this on
+    /// scenePhase → `.background`/`.inactive`, not on every tick — ticks
+    /// happen once a second and nothing here needs finer-grained durability
+    /// than "the last time the app left the foreground."
+    func save() {
+        SaveStore.save(snapshot)
     }
 
     // MARK: - Active colony
