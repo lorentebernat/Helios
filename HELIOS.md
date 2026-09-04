@@ -893,17 +893,17 @@ for 1,200 ticks against `GameState.seeded()`.
 | **S1** | **The simulation stops.** By ~tick 60 every store is at capacity, population is pinned at both caps, and nine of ten chains read "Output full" forever. No sink exists: production out-runs population and nothing else consumes anything. Retuning moves the saturation point, it does not remove it. **Output % does not fix this** — verified by simulation; only a sink does. | Critical | Quota (§4.2); debug sink in Phase 1a |
 | **S2** | **No player agency over the economy.** Two actions exist in the whole app. Output %, workforce, building, starting research: none. | Critical | Output % (Phase 1a) |
 | **S3** | **Credits only decrease.** `credits -=` is the sole mutation. Buy an Escort and a Scout and the shipyard is permanently dead. | Critical | Stipend (§4.7) |
-| **S4** | **No persistence.** Nothing is `Codable`. Quitting resets the world. `lastTickAt` hedges nothing without a save file. | Critical | Promoted to Phase 1.5 (§19) |
-| **S5** | **Determinism broken inside `tick()`.** `Ship.id = UUID()` executes inside the pure step when a build order completes. Breaks replay and server reconciliation. | High | Phase 1.5 |
+| **S4** | **Resolved, Phase 1.5 (2–4 Sep 2026).** Every model that isn't authored data round-trips through `Codable`; `GameSave` (versioned) is written atomically to Application Support on `scenePhase` → background/inactive and loaded at launch, falling back to a fresh game on a missing, corrupt, or unsupported-version file (quarantined as `save.corrupt.json` rather than destroyed). | — | Done |
+| **S5** | **Resolved, Phase 1.5 (2 Sep 2026).** `ShipID` replaces `Ship.id = UUID()`; a monotonic `GameState.nextShipSerial`, itself part of saved state, mints ids deterministically. `tickIsDeterministic` pins two identically-seeded runs to identical stock, throughput and ship ids over 200 ticks. | — | Done |
 | **S6** | **Resolved, Phase 1a (28 Aug 2026).** Grid demand used `energyRequired × outputCap` computed *before* input allocation, so an input-starved chain still booked full power draw. Fixed: demand now scales by `outputPercent` too, reflecting what each chain will actually draw. | — | Done |
 | **S7** | **Resolved, Phase 1a (28 Aug 2026).** `Colony.gridFactor` was a separately computed re-derivation of `ProductionAllocator`'s internal `energyFactor` — the UI rendered one, the sim obeyed the other. Fixed: `ProductionAllocator.run` now returns the factor it used, and `Colony.gridFactor` stores it verbatim. | — | Done |
-| **S8** | **Zero test coverage** on `ProductionAllocator` and `Population` — the two most intricate pure functions. Went from 16 tests (`SimulationCore`) to 0. | High | Phase 1.5 |
+| **S8** | **Resolved, Phase 1.5 (2 Sep 2026).** Twelve tests over `ProductionAllocator` and `Population`, every expected value measured against the real allocator (Appendix C) — including S1's saturation scenario, pinned as a permanent regression test. Four more tests cover the Step 5 persistence round trip. | — | Done |
 | **S9** | `Models/ResearchProject.swift` **imports SwiftUI** (`ResearchCategory.icon`). One crack in the constraint the multiplayer plan rests on. | Low | Move to `ModelStyles` |
 | **S10** | **Research entirely inert**, and the UI doesn't say so — "+12/min from Ascendants" with zero Ascendants and a number that never moves. `status` is a `let`. | Medium | Archive (§4.6), Phase 5 |
 | **S11** | **Unenforced fields:** `requiredTier` (never checked), `workforceAssigned/Required` (display only; Tool Fab seeded 5/6), `providesWorkforce` (unused), `LimitReason.workforce` (never produced but styled and captioned), `GalaxyCoordinate.distance` (unwired). **`ChainStatus.paused` is now produced** (Phase 1a, 28 Aug 2026) — `outputPercent == 0` reports it; the rest of this row is still open. | Medium | Phase 1 (workforce), §5 |
-| **S12** | **Resolved, Phase 1a (28 Aug 2026).** `VoidBackground` (40 stars) and `PlanetBackdrop` (14 ellipses) called `.random` inside `body`, re-rolling on every tick-driven re-evaluation. Fixed with `@State`, seeded once — a first attempt using a plain `let` computed in `init` looked right in a static preview but still re-rolled every tick, because SwiftUI reconstructs the view (re-running `init`) on every parent re-render. See §23. | — | Done |
+| **S12** | **Resolved, Phase 1a + Phase 1.5 (28 Aug – 2 Sep 2026).** Phase 1a's `@State` fix stopped the per-tick re-roll but not a per-tab-switch one: `RootView` selects tabs with a `switch`, so each tab is a distinct view identity, and switching tabs tore `VoidBackground`'s `@State` down and regenerated it. Phase 1.5 Step 1 made the starfield a `private static let`, generated once per launch and shared by every instance — it does not want per-view identity at all. `PlanetBackdrop` now takes a `seed: Int` (new `SeededGenerator`, SplitMix64) so a given world looks identical every time it's opened, while different worlds still differ. See §23. | — | Done |
 | **S13** | **Doc drift** — resolved by this document. Recorded in §21 for the record. | — | Done |
-| **S14** | **Minor:** duplicate `.navigationDestination` registration for `ChainDetail.ID`; `ContentView` is a pure passthrough; ticker attached to `GlassTabBar` (hide the bar and time stops); `kepler-7` has `travelTimeMinutes: 0`; `ChainDetail.id = UUID()` contradicts the slug-id decision and will orphan nav references once persistence lands. | Low | Opportunistic |
+| **S14** | **Resolved, Phase 1.5 (2 Sep 2026).** The two items that actually mattered for persistence: `ChainDetail`/`ResearchProject` now use slug ids (`ChainID`/`ResearchID`), consistent with the rest of authored data — a regenerated `UUID()` would have orphaned every save's chain/project references on next launch. Duplicate `.navigationDestination(for: ChainDetail.ID.self)` registration removed; registered once per stack, in `RootView`. **Still open, low priority, not worth their own row:** `ContentView` is a pure passthrough; the ticker is attached to `GlassTabBar` (hide the bar and time stops); `kepler-7` has `travelTimeMinutes: 0`. | — | Done |
 | **S15** | **Resolved, Phase 1a (28 Aug 2026).** `resolveStatus` compared achieved throughput to `1.0` with a `0.001` tolerance, so chains at 99.5% throughput reported "Limited" in amber — measured at 8 of 10 chains, 100% of ticks, once a sink existed. Fixed: status is now measured against `outputPercent` (`attainment = achieved ÷ outputPercent`), tolerance widened to `0.02`. Verified: with the debug sink on and all chains at 100%, exactly two — Alloy Tool Fab and Cell Factory — read amber, both "Limited by Refined Alloy", the real structural bottleneck. | — | Done |
 
 ### What's working, and worth protecting
@@ -963,13 +963,25 @@ Workforce follows — the more interesting mechanic, the less urgent one.
 **Note:** energy producers are themselves chains. The exemption is already
 implemented; don't undo it.
 
-### Phase 1.5 — Persistence and determinism ▲ *new, pulled forward from Phase 3*
+### Phase 1.5 — Persistence and determinism ▲ ✅ complete *(2–4 Sep 2026, seven commits — `briefs/phase-1-5-tests-and-persistence.md`)*
 
-- Make the value types `Codable`; save/load
-- Fix `UUID()` inside `tick()` (S5); give `ChainDetail` a slug id (S14)
-- Test target over `ProductionAllocator` and `Population` (S8) — including S1's
-  saturation scenario as a regression test
-- Move `ResearchCategory.icon` to `ModelStyles` (S9)
+- Stable starfield (per-launch, not per-view) and seeded-per-world planets (S12)
+- Test target over `ProductionAllocator` and `Population` (S8) — twelve tests,
+  including S1's saturation scenario as a permanent regression test
+- Slug ids for `ChainDetail`/`ResearchProject` (S14); fixed the duplicate
+  `.navigationDestination` registration along the way
+- Fixed `UUID()` inside `tick()` (S5): `ShipID` + monotonic `nextShipSerial`
+- Made the value types `Codable` on the **blueprint-overlay** principle — a save
+  stores ids and mutable fields only, authored data is rehydrated from the
+  registry (S4 in part); `GameSave` versioned from day one. Four more tests
+  cover the round trip and the unknown-id-drop behaviour
+- `SaveStore`: atomic JSON to Application Support, saved on `scenePhase`
+  background/inactive, loaded at launch with fallback to `.seeded()` and a
+  `save.corrupt.json` quarantine for anything unreadable (closes S4)
+
+**Not done here, despite the original plan below claiming it would be:**
+moving `ResearchCategory.icon` out of `Models/ResearchProject.swift` (S9) —
+the brief that actually shipped this phase scoped it out. S9 stays open.
 
 **Why here:** real-time quota cadence (§4.8) makes persistence a hard
 prerequisite, not a convenience. It is also a day's work now and grows with every
@@ -1248,6 +1260,54 @@ device, not by review — see §23.
 diverge.** Rejected: conditional display — it flickered in and out within a tick
 or two of tapping a stop (throughput catches up almost immediately), which read
 as broken rather than confirming what was just set.
+
+### Implementation — Phase 1.5 (2–4 Sep 2026)
+
+**A save file stores mutable state only; authored data is rehydrated from the
+registry on load.** A chain saves `id`, `outputPercent`, `throughput` and
+`status` — never name, icon, rates, energy figures or required tier; those come
+from `ChainDetail.blueprint(for:)`. Same shape for `ResearchProject` (`id` +
+`status`). **Why this matters more than it looks:** serialising authored data
+means a future rebalance never reaches anyone with an existing save, and
+nothing in a bug report would tell you why — a standard, expensive idle-game
+trap. The same principle already held for `Destination` and `Resource`, which
+never carried mutable state to begin with.
+
+**The blueprint-overlay `Codable` on `ChainDetail`/`ResearchProject` is an
+interim measure.** It works today because "authored" and "runtime" are just
+fields on the same struct, so overlaying means "decode a couple of fields,
+copy the rest from a registry lookup." **Phase 5's `Building` concept should
+split blueprint from runtime state as two actual types** — recorded now so
+it isn't rediscovered as a surprise when `Building` design starts.
+
+**An id absent from the registry is dropped, never resurrected as a husk.**
+`ChainDetail`/`ResearchProject.init(from:)` throw on an unknown id;
+`Colony`/`GameSave` catch that per-element via a `Slot` wrapper
+(`try?` the element's own decode, `compactMap` away the failures) so one
+retired chain or research project can't sink the whole array. **Rejected:**
+relying on `UnkeyedDecodingContainer` to auto-advance its cursor past a
+throwing element — that behaviour isn't documented as guaranteed, so a `Slot`
+that owns its own sub-decoder is the safe version of the same idea.
+
+**Custom `Codable` lives in an `extension`, never inside the struct's own
+declaration.** A custom `init(from:)` written inside a struct's primary body
+disables the compiler's synthesised memberwise initialiser; written in an
+extension, it doesn't. Kept `ChainDetail.samples`, `ResearchProject.samples`
+and `Colony.seeded` exactly as they were instead of hand-writing three
+memberwise inits back by hand.
+
+**`GameSave.version` decodes as required, not defaulted.** There is nothing
+to default to yet — version 1 is the only format that has ever existed — and
+treating a version mismatch as absent (same code path as a missing file)
+keeps `SaveStore` from needing real migration logic before there's anything
+to migrate from. `SaveStore.supportedVersion` is the single place that check
+lives.
+
+**Note for Phase 2 (raised by the brief, answered here):** Quota needs
+`lastTickAt` saved — it now is — and a delivery ledger that survives a
+relaunch. Nothing above makes that awkward: `GameSave` is a plain versioned
+struct with explicit `CodingKeys`, so a ledger is an additive field, not a
+redesign.
 
 ### Explicitly not taking
 
