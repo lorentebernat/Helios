@@ -1,0 +1,176 @@
+//
+//  CapacityTests.swift
+//  Helios
+//
+//  Created by Bernat on 04/09/2026.
+//
+
+
+//
+//  CapacityTests.swift
+//  HeliosTests
+//
+//  Phase 2 Step 1.
+//
+
+// Pins CapacityProbe — the number every quota is sized from, so a drift here
+// silently re-tunes the entire Empire layer.
+//
+// NOTE ON THE EXPECTED TABLE. These values differ from HELIOS.md Appendix C by
+// −1% to −3% on most goods, and by more on Water and Ration Bars. Appendix C is
+// what is wrong, and it is checkable by hand: every one of its figures sits
+// ABOVE the arithmetic ceiling of the seed network at full population
+// (300 Survivors + 150 Settlers).
+//
+//   Ration Bars   Synth 6.00 max − 3.60 (survivors) − 2.25 (settlers) = 0.15
+//   Water         Reclaimer 12.00 − 6 (hydro) − 4 (synth) − 1.50 (settlers) = 0.50
+//   Oxygen        Recycler 12.00 − 6.00 − 3.75                        = 2.25
+//   Raw Ice       20 − 8 − 10                                          = 2.00
+//   Grain         10 − 8                                               = 2.00
+//   Raw Ore       15 − 10                                              = 5.00
+//   Power Cells   6 × 7/8  (the Refined Alloy bottleneck)              = 5.25
+//   Alloy Tools   4 × 7/8 − 0.75 (settler luxury)                      = 2.75
+//   Refined Alloy Smelter 7 in, Fab + Factory 7 out                    = 0.00
+//
+// Appendix C's figures are inflated by a near-constant ~0.06/min because they
+// were averaged over a window that included the population ramp (248 → 450),
+// when fewer colonists were eating. Noise on wide-margin goods; decisive on
+// Ration Bars, whose true margin is 0.15. Appendix C is corrected in this phase.
+
+import Testing
+import Foundation
+@testable import Helios
+
+@Suite("Capacity")
+struct CapacityTests {
+
+    /// Measured export ceiling of the seed network, per game-minute.
+    private static let expected: [Resource.ID: Double] = [
+        "power-cells":   5.25,
+        "raw-ore":       5.00,
+        "alloy-tools":   2.75,
+        "oxygen":        2.25,
+        "raw-ice":       2.00,
+        "grain":         2.00,
+        "water":         0.50,
+        "ration-bars":   0.15,
+        "refined-alloy": 0.00
+    ]
+
+    private func seedColony() -> Colony {
+        GameState.seeded().colonies[0]
+    }
+
+    private func throttled(_ names: [String], to value: Double) -> Colony {
+        var colony = seedColony()
+        for name in names {
+            guard let i = colony.productionChains.firstIndex(where: { $0.name == name }) else {
+                Issue.record("No chain named \(name) in seed data")
+                continue
+            }
+            colony.productionChains[i].outputPercent = value
+        }
+        return colony
+    }
+
+    // MARK: - The baseline everything downstream is tuned against
+
+    @Test func matchesAppendixC() {
+        let measured = CapacityProbe.measure(colony: seedColony(), economyRate: 1.0)
+
+        for (id, want) in Self.expected {
+            let got = measured[id] ?? -1
+            // ±5%, with an absolute floor so Refined Alloy's 0.00 has a window
+            // at all rather than demanding exact equality.
+            let tolerance = max(0.02, want * 0.05)
+            #expect(abs(got - want) <= tolerance,
+                    "\(id): expected \(want) ± \(tolerance), got \(got)")
+        }
+
+        #expect(measured.count == Resource.all.count,
+                "the probe should report every resource in the registry")
+    }
+
+    // MARK: - The anti-exploit test
+
+    /// The most important test in this step. Quota is sized from *installed*
+    /// capacity, so throttling a chain must not change what the Empire asks for
+    /// next cycle. If this fails, the optimal play becomes running the colony at
+    /// minimum and the whole economy is poisoned. HELIOS.md §4.1.
+    @Test func isUnaffectedByThrottling() {
+        let full = CapacityProbe.measure(colony: seedColony(), economyRate: 1.0)
+        let quiet = CapacityProbe.measure(
+            colony: throttled(["Alloy Tool Fab", "Cell Factory", "Hydroponics Bay"], to: 0.25),
+            economyRate: 1.0
+        )
+
+        for id in Resource.all.map(\.id) {
+            #expect(full[id] == quiet[id],
+                    "\(id): throttling changed assessed capacity — \(full[id] ?? -1) vs \(quiet[id] ?? -1)")
+        }
+    }
+
+    /// The extreme form: a colony with everything switched off must still
+    /// assess exactly the same, because it has built exactly the same.
+    @Test func isUnaffectedByAFullShutdown() {
+        let full = CapacityProbe.measure(colony: seedColony(), economyRate: 1.0)
+
+        var dark = seedColony()
+        for i in dark.productionChains.indices {
+            dark.productionChains[i].outputPercent = 0
+        }
+        let measured = CapacityProbe.measure(colony: dark, economyRate: 1.0)
+
+        for id in Resource.all.map(\.id) {
+            #expect(full[id] == measured[id],
+                    "\(id): a shut-down colony assessed differently — \(full[id] ?? -1) vs \(measured[id] ?? -1)")
+        }
+    }
+
+    // MARK: - It runs on a copy
+
+    @Test func doesNotMutateTheColony() {
+        var colony = seedColony()
+        // Set something the probe overwrites internally, so a leak would show.
+        colony.productionChains[0].outputPercent = 0.5
+
+        let stockBefore = Resource.all.map { colony.stock.amount(of: $0.id) }
+        let throughputBefore = colony.productionChains.map(\.throughput)
+        let statusBefore = colony.productionChains.map(\.status)
+        let percentBefore = colony.productionChains.map(\.outputPercent)
+        let populationBefore = colony.population.total
+        let queueBefore = colony.shipyardQueue.count
+
+        _ = CapacityProbe.measure(colony: colony, economyRate: 1.0)
+
+        #expect(Resource.all.map { colony.stock.amount(of: $0.id) } == stockBefore, "stock was mutated")
+        #expect(colony.productionChains.map(\.throughput) == throughputBefore, "throughputs were mutated")
+        #expect(colony.productionChains.map(\.status) == statusBefore, "statuses were mutated")
+        #expect(colony.productionChains.map(\.outputPercent) == percentBefore, "outputPercent was mutated")
+        #expect(colony.population.total == populationBefore, "population was mutated")
+        #expect(colony.shipyardQueue.count == queueBefore, "shipyard queue was mutated")
+    }
+
+    // MARK: - Determinism (the property Phase 4 replay and Phase 9 both need)
+
+    @Test func isDeterministic() {
+        let a = CapacityProbe.measure(colony: seedColony(), economyRate: 1.0)
+        let b = CapacityProbe.measure(colony: seedColony(), economyRate: 1.0)
+        #expect(a == b, "two identical colonies measured differently")
+    }
+
+    /// Capacity is per *game-minute*, so halving the tick size must not halve
+    /// the answer. Phase 4 dials economyRate to 1/60 — this is what stops quota
+    /// sizes collapsing by 60× when it does.
+    @Test func isIndependentOfEconomyRate() {
+        let atOne = CapacityProbe.measure(colony: seedColony(), economyRate: 1.0)
+        let atHalf = CapacityProbe.measure(colony: seedColony(), economyRate: 0.5)
+
+        for id in Resource.all.map(\.id) {
+            let x = atOne[id] ?? -1
+            let y = atHalf[id] ?? -1
+            #expect(abs(x - y) <= max(0.02, x * 0.05),
+                    "\(id): \(x) at rate 1.0 vs \(y) at rate 0.5")
+        }
+    }
+}
