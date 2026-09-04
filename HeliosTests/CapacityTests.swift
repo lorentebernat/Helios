@@ -1,13 +1,5 @@
 //
 //  CapacityTests.swift
-//  Helios
-//
-//  Created by Bernat on 04/09/2026.
-//
-
-
-//
-//  CapacityTests.swift
 //  HeliosTests
 //
 //  Phase 2 Step 1.
@@ -57,6 +49,12 @@ struct CapacityTests {
         "refined-alloy": 0.00
     ]
 
+    /// ±5%, with an absolute floor so Refined Alloy's 0.00 has a window at all
+    /// rather than demanding exact equality.
+    private static func tolerance(for expected: Double) -> Double {
+        max(0.02, expected * 0.05)
+    }
+
     private func seedColony() -> Colony {
         GameState.seeded().colonies[0]
     }
@@ -80,11 +78,8 @@ struct CapacityTests {
 
         for (id, want) in Self.expected {
             let got = measured[id] ?? -1
-            // ±5%, with an absolute floor so Refined Alloy's 0.00 has a window
-            // at all rather than demanding exact equality.
-            let tolerance = max(0.02, want * 0.05)
-            #expect(abs(got - want) <= tolerance,
-                    "\(id): expected \(want) ± \(tolerance), got \(got)")
+            #expect(abs(got - want) <= Self.tolerance(for: want),
+                    "\(id): expected \(want) ± \(Self.tolerance(for: want)), got \(got)")
         }
 
         #expect(measured.count == Resource.all.count,
@@ -159,18 +154,27 @@ struct CapacityTests {
         #expect(a == b, "two identical colonies measured differently")
     }
 
-    /// Capacity is per *game-minute*, so halving the tick size must not halve
-    /// the answer. Phase 4 dials economyRate to 1/60 — this is what stops quota
-    /// sizes collapsing by 60× when it does.
+    /// Capacity is per *game-minute*, so the tick size must not change it.
+    ///
+    /// **1/60 is the case that matters**, and it is the one that caught the
+    /// original bug: the probe's settle window was counted in ticks, so at
+    /// Phase 4's honest rate it covered 3.3 game-minutes instead of 200 and
+    /// measured the seed colony's population ramp rather than its steady state.
+    /// Oxygen came back at 5.83/min against a true 2.25 and Ration Bars at 2.30
+    /// against 0.15 — every manifest would have inflated by 2–15× the moment
+    /// Phase 4 dialled the rate down. The window is game-minutes now.
     @Test func isIndependentOfEconomyRate() {
-        let atOne = CapacityProbe.measure(colony: seedColony(), economyRate: 1.0)
-        let atHalf = CapacityProbe.measure(colony: seedColony(), economyRate: 0.5)
+        let rates: [Double] = [1.0, 0.5, 0.25, 1.0 / 60.0]
+        let measurements = rates.map { rate in
+            (rate: rate, values: CapacityProbe.measure(colony: seedColony(), economyRate: rate))
+        }
 
-        for id in Resource.all.map(\.id) {
-            let x = atOne[id] ?? -1
-            let y = atHalf[id] ?? -1
-            #expect(abs(x - y) <= max(0.02, x * 0.05),
-                    "\(id): \(x) at rate 1.0 vs \(y) at rate 0.5")
+        for (rate, values) in measurements {
+            for (id, want) in Self.expected {
+                let got = values[id] ?? -1
+                #expect(abs(got - want) <= Self.tolerance(for: want),
+                        "at economyRate \(rate), \(id): expected \(want), got \(got)")
+            }
         }
     }
 }

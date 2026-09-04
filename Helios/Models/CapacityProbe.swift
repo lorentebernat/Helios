@@ -1,11 +1,3 @@
-//
-//  CapacityProbe.swift
-//  Helios
-//
-//  Created by Bernat on 04/09/2026.
-//
-
-
 // CapacityProbe.swift
 // What this colony *could* export per game-minute: production at full output,
 // net of what the colonists eat. The number every quota is sized from.
@@ -24,23 +16,31 @@
 // spiral arriving through a side door. Throttling changes what you deliver this
 // cycle, never what is asked of you next cycle. HELIOS.md §4.1.
 //
+// THE WINDOW IS MEASURED IN GAME-MINUTES, NOT TICKS. This is not cosmetic. A
+// tick-counted window is a different amount of *simulated time* at every
+// economyRate, and the seed colony's population ramp (248 → 450 colonists,
+// ~90 game-minutes) is exactly the sort of transient a short window measures
+// instead of skipping: fewer colonists eating means a wildly inflated surplus.
+// At the 1/60 rate Phase 4 dials in, a 200-*tick* settle is 3.3 game-minutes
+// and lands entirely inside that ramp. Measuring the ramp is the same mistake
+// HELIOS.md Appendix C made, and it is what made its published figures exceed
+// the network's arithmetic ceiling on every single good.
+//
 // Pure and deterministic: no Date, no randomness, no mutation of the live
-// colony. Not called per tick — once per quota generation.
+// colony. Not called per tick — once per quota generation. At the 1/60 rate a
+// probe is ~48,000 sandbox ticks of pure arithmetic over ten chains and nine
+// resources, which happens once per quota interval, i.e. once every 14,400
+// real ticks.
 
 import Foundation
 
 struct CapacityProbe {
 
-    /// Ticks run before measurement begins, so the sandbox reaches steady state
-    /// before anything is counted. The seed colony's population ramp (248 → 450)
-    /// takes ~75 game-minutes; 200 clears it with room to spare.
-    ///
-    /// This margin is the whole reason the measured figures below differ from
-    /// HELIOS.md Appendix C: those were averaged over a window that included the
-    /// ramp, when fewer colonists were eating, which inflated every good by a
-    /// near-constant ~0.06/min. Harmless on wide-margin goods, decisive on
-    /// Ration Bars, whose real margin is 0.15.
-    static let settleTicks = 200
+    /// Game-minutes run and discarded before measurement begins, so the
+    /// sandbox reaches steady state before anything is counted. The seed
+    /// colony's population ramp takes ~90 game-minutes; 200 clears it with
+    /// room to spare.
+    static let settleMinutes: Double = 200
 
     /// The sandbox sink pulls every good down to this fraction of its storage
     /// capacity at the end of each tick. Its only job is to stop stores
@@ -54,10 +54,25 @@ struct CapacityProbe {
     /// net of what the colonists eat. Runs a *copy* of the colony — never
     /// mutates the live one.
     ///
-    /// - Parameter ticks: how many ticks are *measured*. `settleTicks` more are
-    ///   run first and discarded.
-    static func measure(colony: Colony, economyRate: Double, ticks: Int = 600) -> [Resource.ID: Double] {
-        guard ticks > 0, economyRate > 0 else { return [:] }
+    /// - Parameters:
+    ///   - economyRate: game-minutes advanced per tick, as the live simulation
+    ///     runs it. The sandbox is stepped at the same granularity, because the
+    ///     simulation is path-dependent and a different tick size is a
+    ///     different simulation.
+    ///   - gameMinutes: how much simulated time is *measured*. `settleMinutes`
+    ///     more are run first and discarded.
+    static func measure(
+        colony: Colony,
+        economyRate: Double,
+        gameMinutes: Double = 600
+    ) -> [Resource.ID: Double] {
+        guard gameMinutes > 0, economyRate > 0 else { return [:] }
+
+        // The single conversion from game-minutes to ticks, mirroring
+        // QuotaGenerator.ticks(forInterval:economyRate:). Nothing in this file
+        // reasons in ticks except the loop bounds.
+        let settleTicks = max(1, Int((settleMinutes / economyRate).rounded()))
+        let measuredTicks = max(1, Int((gameMinutes / economyRate).rounded()))
 
         // Colony is a struct all the way down — stock, population, chains and
         // the shipyard queue are all value types — so this is a deep copy and
@@ -74,7 +89,7 @@ struct CapacityProbe {
         var net = [Resource.ID: Double](uniqueKeysWithValues: goods.map { ($0, 0.0) })
         var before = [Resource.ID: Double](uniqueKeysWithValues: goods.map { ($0, 0.0) })
 
-        for t in 0..<(settleTicks + ticks) {
+        for t in 0..<(settleTicks + measuredTicks) {
             let measuring = t >= settleTicks
 
             for id in goods {
@@ -109,9 +124,11 @@ struct CapacityProbe {
             }
         }
 
-        let gameMinutes = Double(ticks) * economyRate
+        // Divide by the game-minutes actually simulated, not the figure that
+        // was asked for — the tick conversion above rounds.
+        let elapsedMinutes = Double(measuredTicks) * economyRate
         // Clamped at zero: a colony that consumes more of a good than it makes
         // has no export capacity for it, not a negative one.
-        return net.mapValues { max(0, $0 / gameMinutes) }
+        return net.mapValues { max(0, $0 / elapsedMinutes) }
     }
 }
