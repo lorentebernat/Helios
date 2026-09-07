@@ -6,15 +6,18 @@
 //
 
 // Pins behaviour of ProductionAllocator and Population — the two most
-// intricate pure functions in the simulation, previously untested
-// (HELIOS.md §18 S8). Every expected number here was measured against the
-// real allocator on 28 Aug 2026 (HELIOS.md Appendix C) and re-verified
-// against a line-for-line port of this exact logic before being pinned.
+// intricate pure functions in the simulation (HELIOS.md §18 S8). Every
+// expected number here was measured against the real allocator and
+// re-verified against a line-for-line port of this exact logic before being
+// pinned.
 //
 // Swift Testing runs tests in parallel by default, so every test builds its
-// own GameState.seeded() — nothing is shared — and the debug sink is passed
-// in via Colony.applyTick(applyDebugSink:) rather than toggled through a
-// mutable static, which would be flaky under parallel execution.
+// own GameState.seeded() and nothing is shared.
+//
+// PHASE 2 STEP 3: the debug sink is gone. These tests used to pass
+// `applyDebugSink:` to choose whether anything drained the colony; they now
+// drive the real quota path through `GameState.tick()`, and switch the sink off
+// by clearing `currentQuota` — which is S1 exactly, reachable only on purpose.
 
 import Testing
 import Foundation
@@ -25,12 +28,17 @@ struct HeliosTests {
 
     // MARK: - Helpers
 
-    /// Ticks the (single-colony) seeded game state `n` times, with the debug
-    /// sink explicitly on or off.
-    private func tick(_ state: GameState, _ n: Int, sink: Bool) {
-        for _ in 0..<n {
-            _ = state.colonies[0].applyTick(economyRate: 1.0, fleetRate: 1.0, applyDebugSink: sink)
-        }
+    /// Ticks the whole game state `n` times, so quota delivery and the ledger's
+    /// interval both advance the way they do in play.
+    private func tick(_ state: GameState, _ n: Int) {
+        for _ in 0..<n { state.tick() }
+    }
+
+    /// A seeded game with no demand at all — no manifest, therefore no sink.
+    private func seededWithoutQuota() -> GameState {
+        let state = GameState.seeded()
+        state.currentQuota = nil
+        return state
     }
 
     private func chain(_ state: GameState, named name: String) -> ChainDetail {
@@ -56,8 +64,8 @@ struct HeliosTests {
     // MARK: - S1: saturation is real, and only a sink removes it
 
     @Test func saturatesWithoutASink() {
-        let state = GameState.seeded()
-        tick(state, 300, sink: false)
+        let state = seededWithoutQuota()
+        tick(state, 300)
 
         let colony = state.colonies[0]
         let notRunning = colony.productionChains.filter { !$0.status.isNominal }
@@ -68,11 +76,11 @@ struct HeliosTests {
         #expect(meanFill > 0.90, "expected mean store fill > 90%, got \(meanFill)")
     }
 
-    // MARK: - Steady state with the sink on
+    // MARK: - Steady state with a real quota
 
-    @Test func steadyStateWithSink() {
+    @Test func steadyStateWithQuota() {
         let state = GameState.seeded()
-        tick(state, 2000, sink: true)
+        tick(state, 2000)
 
         let colony = state.colonies[0]
         let notRunning = colony.productionChains.filter { !$0.status.isNominal }
@@ -85,20 +93,27 @@ struct HeliosTests {
                 continue
             }
             #expect(id == "refined-alloy", "\(c.name) limited by \(id), expected refined-alloy")
-            expectApprox(c.throughput, 0.86, tolerance: 0.02, c.name)
+            expectApprox(c.throughput, 0.875, tolerance: 0.02, c.name)
         }
     }
 
-    @Test func sinkKeepsColonistsAlive() {
+    @Test func quotaKeepsColonistsAlive() {
         let state = GameState.seeded()
-        tick(state, 2000, sink: true)
+        tick(state, 2000)
 
         let colony = state.colonies[0]
         expectApprox(colony.population.total, 450, tolerance: 2, "population total")
 
+        // The reserve floor is a floor, not a target. With the manifest sized
+        // at load 1.0 the Empire's draw exactly matches net production, so
+        // these goods sit wherever the startup transient left them — above the
+        // floor, never below it. (The old expectation of exactly 30% came from
+        // DebugSink draining *faster* than the colony could produce, which
+        // pinned them against the floor. See HELIOS.md Appendix C.)
         for id in ["oxygen", "ration-bars", "water"] {
             let fraction = colony.stock.fillFraction(of: id)
-            expectApprox(fraction, 0.30, tolerance: 0.01, "\(id) reserve fill")
+            #expect(fraction >= QuotaLedger.reserveFraction - 0.001,
+                    "\(id) at \(fraction) — the Empire crossed the reserve floor")
         }
     }
 
@@ -107,7 +122,7 @@ struct HeliosTests {
     @Test func outputPercentIsHonoured() {
         let state = GameState.seeded()
         setOutputPercent(state, named: "Alloy Tool Fab", to: 0.5)
-        tick(state, 2000, sink: true)
+        tick(state, 2000)
 
         let toolFab = chain(state, named: "Alloy Tool Fab")
         expectApprox(toolFab.throughput, 0.5, tolerance: 0.02, "Alloy Tool Fab throughput")
@@ -118,7 +133,7 @@ struct HeliosTests {
     @Test func pauseStopsConsumption() {
         let state = GameState.seeded()
         setOutputPercent(state, named: "Alloy Tool Fab", to: 0)
-        tick(state, 2000, sink: true)
+        tick(state, 2000)
 
         let toolFab = chain(state, named: "Alloy Tool Fab")
         guard case .paused = toolFab.status else {
@@ -139,14 +154,14 @@ struct HeliosTests {
             return
         }
         state.colonies[0].productionChains[ppIndex].energyProduced = 90
-        tick(state, 200, sink: true)
+        tick(state, 200)
 
         let hydroBefore = chain(state, named: "Hydroponics Bay")
-        expectApprox(hydroBefore.throughput, 0.52, tolerance: 0.02, "Hydroponics before freeing power")
+        expectApprox(hydroBefore.throughput, 0.53, tolerance: 0.02, "Hydroponics before freeing power")
 
         setOutputPercent(state, named: "Alloy Tool Fab", to: 0)
         setOutputPercent(state, named: "Cell Factory", to: 0)
-        tick(state, 500, sink: true)
+        tick(state, 500)
 
         let hydroAfter = chain(state, named: "Hydroponics Bay")
         expectApprox(hydroAfter.throughput, 1.0, tolerance: 0.02,
@@ -157,7 +172,7 @@ struct HeliosTests {
 
     @Test func noChainReportsLimitedWhileAtRate() {
         let state = GameState.seeded()
-        tick(state, 2000, sink: true)
+        tick(state, 2000)
 
         for c in state.colonies[0].productionChains where c.outputPercent > 0 {
             let attainment = c.throughput / c.outputPercent
@@ -177,7 +192,7 @@ struct HeliosTests {
             return
         }
         state.colonies[0].productionChains[ppIndex].energyProduced = 90   // force a brownout
-        tick(state, 1, sink: true)
+        tick(state, 1)
 
         let colony = state.colonies[0]
         let expected = colony.gridDemand <= 0 ? 1 : min(1, colony.gridSupply / colony.gridDemand)
@@ -246,28 +261,23 @@ struct HeliosTests {
     // MARK: - S5: no randomness inside tick()
 
     /// Two independently-seeded states, given the exact same sequence of
-    /// actions, must produce byte-identical results — including ship ids.
-    /// This is the property Phase 4's offline replay and Phase 9's server
-    /// reconciliation both depend on; it would have caught `Ship.id = UUID()`
-    /// generated inside tick() immediately, since the two runs would have
-    /// diverged the moment a build order completed. HELIOS.md §18 S5.
+    /// actions, must produce byte-identical results — including ship ids and,
+    /// now, the generated manifest and its ledger. This is the property Phase
+    /// 4's offline replay and Phase 9's server reconciliation both depend on.
+    /// HELIOS.md §18 S5.
     @Test func tickIsDeterministic() {
         let a = GameState.seeded()
         let b = GameState.seeded()
 
-        // The seed colony starts with zero Refined Alloy by design (HELIOS.md
-        // Appendix C: "Tool Fab starts blocked"), so no ship role is
-        // affordable at tick 0. Deposit identically into both colonies so
-        // queueShip succeeds the same way in both runs.
+        // The seed colony starts with zero Refined Alloy by design, so no ship
+        // role is affordable at tick 0. Deposit identically into both colonies
+        // so queueShip succeeds the same way in both runs.
         a.colonies[0].stock.deposit("refined-alloy", 100)
         b.colonies[0].stock.deposit("refined-alloy", 100)
 
         #expect(a.queueShip(role: .scout, name: "Test Scout"))
         #expect(b.queueShip(role: .scout, name: "Test Scout"))
 
-        // 200 ticks comfortably clears the scout's 5-minute build time (at
-        // economyRate/fleetRate 1.0, 1 tick == 1 game-minute), so both
-        // runs mint a new ship mid-run and keep ticking afterward.
         for _ in 0..<200 {
             a.tick()
             b.tick()
@@ -284,27 +294,31 @@ struct HeliosTests {
         #expect(colonyA.productionChains.map(\.throughput) == colonyB.productionChains.map(\.throughput),
                 "throughputs diverged")
 
+        #expect(a.currentQuota == b.currentQuota, "generated manifests diverged")
+        #expect(a.ledger == b.ledger, "quota ledgers diverged")
+
         #expect(a.ships.map(\.id) == b.ships.map(\.id), "ship ids diverged")
         #expect(a.ships.count == 6, "expected the seed fleet of 5 plus the one queued ship")
     }
 }
 
-// MARK: - Persistence (Phase 1.5 Step 5)
+// MARK: - Persistence (Phase 1.5 Step 5, extended Phase 2 Step 3)
 
 /// `ChainDetail`/`ResearchProject`'s blueprint-overlay `Codable` and
 /// `GameSave`'s round trip. Every save/load in these tests goes through real
 /// `JSONEncoder`/`JSONDecoder`, not hand-typed JSON, except where a test
-/// specifically needs to hand-craft an unknown id — see the two
-/// `unknown...IsDropped` tests below.
+/// specifically needs to hand-craft an unknown id.
 @Suite("Persistence")
 struct PersistenceTests {
-
-    // MARK: - Brief-required: the actual save/load round trip
 
     /// Seeds, ticks 500 times, encodes, decodes, and asserts the restored
     /// state ticks identically to the original for another 100 ticks — the
     /// property that actually matters: a loaded save behaves exactly like
     /// the game that was saved, not just "decodes without crashing."
+    ///
+    /// Phase 2 makes this strictly stronger: 500 ticks is mid-cycle, so the
+    /// quota, its ledger and the elapsed interval all have to survive or the
+    /// two runs deliver different amounts and diverge immediately.
     @Test func saveRoundTrips() throws {
         let original = GameState.seeded()
         for _ in 0..<500 {
@@ -314,6 +328,9 @@ struct PersistenceTests {
         let data = try JSONEncoder().encode(original.snapshot)
         let save = try JSONDecoder().decode(GameSave.self, from: data)
         let restored = GameState(save: save)
+
+        #expect(restored.currentQuota == original.currentQuota, "quota did not survive the round trip")
+        #expect(restored.ledger == original.ledger, "ledger did not survive the round trip")
 
         for _ in 0..<100 {
             original.tick()
@@ -332,14 +349,12 @@ struct PersistenceTests {
         #expect(original.credits == restored.credits, "credits diverged after round-trip")
         #expect(original.colonies[0].population.total == restored.colonies[0].population.total,
                 "population diverged after round-trip")
+        #expect(original.ledger == restored.ledger, "ledger diverged after round-trip")
     }
 
     /// Hand-crafts a save naming a chain id that isn't in the registry —
     /// decode must succeed with that chain simply absent, not throw and not
-    /// resurrect it as a placeholder. Builds a real save via JSONEncoder,
-    /// then splices in one bogus chain (cloned from a real one, id swapped)
-    /// via JSONSerialization, so the test isn't hand-matching the exact shape
-    /// Codable synthesis happens to produce.
+    /// resurrect it as a placeholder.
     @Test func unknownChainIsDropped() throws {
         let state = GameState.seeded()
         let data = try JSONEncoder().encode(state.snapshot)
@@ -371,15 +386,6 @@ struct PersistenceTests {
                 "the unknown chain id should not appear anywhere in the decoded colony")
     }
 
-    // MARK: - Symmetry additions (not explicitly required by the brief)
-
-    // The brief calls out ChainDetail's blueprint-overlay and its
-    // unknown-id-drop behaviour explicitly, but ResearchProject gets the
-    // identical treatment (same blueprint-overlay Codable, same ResearchSlot
-    // drop-on-decode-failure mechanism in GameSave). Mirroring
-    // unknownChainIsDropped here catches a regression in ResearchSlot
-    // specifically, which saveRoundTrips alone wouldn't: that test never
-    // exercises the "id absent from the registry" path.
     @Test func unknownResearchProjectIsDropped() throws {
         let state = GameState.seeded()
         let data = try JSONEncoder().encode(state.snapshot)
@@ -409,11 +415,6 @@ struct PersistenceTests {
                 "the unknown project id should not appear anywhere in the decoded save")
     }
 
-    // `ChainStatus`/`LimitReason` are the one part of this step relying on
-    // SE-0295 enum-with-associated-values Codable synthesis rather than
-    // hand-written coding — the brief explicitly asks that this be checked
-    // rather than assumed. Covers every case shape: no payload, and a
-    // payload that is itself a no-payload case vs. one carrying a value.
     @Test func chainStatusRoundTrips() throws {
         let statuses: [ChainStatus] = [
             .running, .stalled, .paused,
@@ -425,5 +426,12 @@ struct PersistenceTests {
             let decoded = try JSONDecoder().decode(ChainStatus.self, from: data)
             #expect(decoded == status, "\(status) round-tripped to \(decoded)")
         }
+    }
+
+    /// The save format changed shape this step, so the version guard is now
+    /// load-bearing rather than theoretical.
+    @Test func saveDeclaresTheCurrentVersion() {
+        #expect(GameState.seeded().snapshot.version == SaveStore.supportedVersion,
+                "a freshly written save must declare the version this build loads")
     }
 }

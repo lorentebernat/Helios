@@ -96,15 +96,11 @@ struct CapacityProbe {
                 before[id] = sandbox.stock.amount(of: id)
             }
 
+            // No quota: the probe brings its own sink. Delivering against a
+            // real manifest here would measure the quota rather than the
+            // colony, and the quota is what we are trying to size.
             // fleetRate 0: nothing in this sandbox should advance a build.
-            // applyDebugSink false: the probe brings its own sink, and the
-            // debug one drains at fixed authored rates that would bias the
-            // measurement toward whatever those rates happen to be.
-            sandbox.applyTick(
-                economyRate: economyRate,
-                fleetRate: 0,
-                applyDebugSink: false
-            )
+            sandbox.applyTick(economyRate: economyRate, fleetRate: 0)
 
             for id in goods {
                 let floor = sandbox.stock.capacity(of: id) * sandboxFloorFraction

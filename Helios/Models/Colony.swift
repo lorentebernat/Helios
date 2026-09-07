@@ -20,10 +20,7 @@ struct Colony: Identifiable {
     var gridDemand: Double = 0
 
     // Stored, set directly from what ProductionAllocator.run actually used to
-    // resolve Phase B — not recomputed here. Previously this was a computed
-    // property re-deriving the same ratio from gridSupply/gridDemand, which
-    // only agreed with the simulation's own factor by coincidence of both
-    // reading the same two numbers. HELIOS.md §18 S7.
+    // resolve Phase B — not recomputed here. HELIOS.md §18 S7.
     var gridFactor: Double = 1
 
     /// How much of generation is being drawn. Can exceed 100% under brownout.
@@ -44,13 +41,25 @@ struct Colony: Identifiable {
     /// completed, for the empire to turn into actual ships — ships are
     /// empire-scoped, so the colony can't create them itself.
     ///
-    /// `applyDebugSink` is threaded in rather than read from a mutable
-    /// static, because Swift Testing runs tests in parallel by default —
-    /// a shared `DebugSink.enabled` toggle would be flaky. `GameState.tick()`
-    /// passes `DebugSink.enabled`; tests pass `true`/`false` explicitly.
-    /// HELIOS.md §18 S8.
+    /// Order is deliberate and load-bearing: **colonists eat, then industry
+    /// runs, then the Empire collects.** Population going first is what makes a
+    /// shortage surface as blocked production — diagnosable — rather than as
+    /// silent population decline (HELIOS.md §21). The Empire going last is what
+    /// makes it the residual claimant on everything, which together with the
+    /// reserve floor in `QuotaLedger` is why quota can be a real sink without
+    /// being able to starve the colony.
+    ///
+    /// The quota, its ledger and the tick are threaded in rather than read from
+    /// anywhere global: Swift Testing runs tests in parallel, and this keeps
+    /// every test driving its own state.
     @discardableResult
-    mutating func applyTick(economyRate: Double, fleetRate: Double, applyDebugSink: Bool = true) -> [ShipBuildOrder] {
+    mutating func applyTick(
+        economyRate: Double,
+        fleetRate: Double,
+        quota: Quota?,
+        ledger: inout QuotaLedger,
+        atTick tick: Int
+    ) -> [ShipBuildOrder] {
         // Colonists eat before industry runs.
         population.applyTick(stock: &stock, minutesPerTick: economyRate)
 
@@ -63,14 +72,49 @@ struct Colony: Identifiable {
         gridDemand = grid.demand
         gridFactor = grid.factor
 
-        // TEMPORARY Phase 1 scaffolding, removed when Quota lands in Phase 2.
-        // Without it the economy saturates and output % has no visible
-        // effect. See DebugSink.swift. HELIOS.md §18 S1.
-        if applyDebugSink {
-            DebugSink.applyTick(stock: &stock, economyRate: economyRate)
+        // The Empire collects last, and only against a ledger that belongs to
+        // the quota being collected on. A mismatch means the ledger is stale;
+        // resetting it is `GameState`'s job, not a colony's.
+        if let quota, ledger.quotaID == quota.id {
+            collectQuota(quota, into: &ledger, atTick: tick)
         }
 
         return advanceShipyard(fleetRate: fleetRate)
+    }
+
+    /// For callers with no Empire in play: the capacity sandbox, and the tests
+    /// that only care about production and population.
+    @discardableResult
+    mutating func applyTick(economyRate: Double, fleetRate: Double) -> [ShipBuildOrder] {
+        var noLedger = QuotaLedger(quotaID: 0)
+        return applyTick(
+            economyRate: economyRate,
+            fleetRate: fleetRate,
+            quota: nil,
+            ledger: &noLedger,
+            atTick: 0
+        )
+    }
+
+    /// Moves goods from stores into the quota ledger, paced by the quota's own
+    /// schedule and bounded by the reserve floor. Both rules live outside this
+    /// method; this is only the part that has to touch `stock`.
+    ///
+    /// Iterates `sortedLines` rather than the dictionary so the order is fixed.
+    /// Lines are independent, so order cannot change the result — but "cannot"
+    /// is worth being able to state without an argument, given Phase 4 replay
+    /// and Phase 9 reconciliation both rest on it.
+    private mutating func collectQuota(_ quota: Quota, into ledger: inout QuotaLedger, atTick tick: Int) {
+        for line in quota.sortedLines {
+            let wanted = ledger.collectableNow(of: line.good, against: quota, atTick: tick)
+            guard wanted > 0 else { continue }
+
+            let moved = min(wanted, QuotaLedger.drawable(line.good, from: stock))
+            guard moved > 0 else { continue }
+
+            stock.drain(line.good, moved)
+            ledger.deliver(line.good, moved)
+        }
     }
 
     private mutating func advanceShipyard(fleetRate: Double) -> [ShipBuildOrder] {
