@@ -121,6 +121,62 @@ struct CapacityTests {
                     "\(id): a shut-down colony assessed differently — \(full[id] ?? -1) vs \(measured[id] ?? -1)")
         }
     }
+    
+    /// A power-limited colony assesses *below* what a player who throttles can
+    /// actually produce — and that is the safe direction, not a defect.
+    ///
+    /// The probe forces every chain to 100%, which for a colony whose grid
+    /// cannot serve everything at once is a state it can never occupy. Measured
+    /// with the Power Plant at 90 MW instead of 240, capacity comes back at
+    /// roughly 53% of the healthy figures across the board, and Ration Bars
+    /// falls to 0.00 — below the naming floor, so a power-starved colony is not
+    /// even asked for them.
+    ///
+    /// The alternative would be to measure the best output achievable under
+    /// some throttling strategy. That is strictly worse: the Empire would
+    /// optimise on the player's behalf, and the assessment would *rise* the
+    /// moment they played well. Under-assessment errs toward the player.
+    ///
+    /// The cost is real and belongs in the record. A player who throttles
+    /// wisely out-produces the assessment, and at load 1.0 that surplus has
+    /// nowhere to go: in the brownout-plus-throttle scenario five of nine
+    /// stores saturate and four chains stall. This is the second sink Appendix C
+    /// already asks for — construction consuming materials, Phase 5. "Quota is
+    /// pressure; building is agency."
+    @Test func assessmentUnderstatesAPowerLimitedColony() {
+        var brownout = seedColony()
+        guard let plant = brownout.productionChains.firstIndex(where: { $0.name == "Power Plant" }) else {
+            Issue.record("No Power Plant in seed data")
+            return
+        }
+        brownout.productionChains[plant].energyProduced = 90
+
+        let healthy = CapacityProbe.measure(colony: seedColony(), economyRate: 1.0)
+        let starved = CapacityProbe.measure(colony: brownout, economyRate: 1.0)
+
+        for good in ["power-cells", "raw-ore", "grain", "raw-ice", "oxygen", "alloy-tools"] {
+            let h = healthy[good] ?? 0
+            let s = starved[good] ?? 0
+            #expect(s < h, "\(good): a brownout colony assessed \(s), no lower than the healthy \(h)")
+            #expect(s > 0, "\(good): a brownout colony still produces something, got \(s)")
+        }
+
+        // Below the naming floor — a starved colony is not asked for rations.
+        #expect((starved["ration-bars"] ?? 1) < QuotaGenerator.minimumCapacityPerGameMinute,
+                "expected Ration Bars below the naming floor, got \(starved["ration-bars"] ?? -1)")
+
+        // The anti-exploit property still holds inside the brownout: throttling
+        // changes what you deliver, never what you are assessed at.
+        var quiet = brownout
+        for i in quiet.productionChains.indices {
+            quiet.productionChains[i].outputPercent = 0.25
+        }
+        let throttled = CapacityProbe.measure(colony: quiet, economyRate: 1.0)
+        for id in Resource.all.map(\.id) {
+            #expect(starved[id] == throttled[id],
+                    "\(id): throttling changed a brownout colony's assessment — \(starved[id] ?? -1) vs \(throttled[id] ?? -1)")
+        }
+    }
 
     // MARK: - It runs on a copy
 

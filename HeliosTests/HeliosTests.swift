@@ -147,12 +147,52 @@ struct HeliosTests {
 
     // MARK: - S6: throttling a chain frees power for the rest of the colony
 
+    /// The subject here is the energy grid, not the Empire, so the manifest is
+    /// given a cadence long enough that no settlement lands inside the run.
+    ///
+    /// That isolation is deliberate and worth stating. Settlement re-assesses
+    /// capacity, and `CapacityProbe` assesses a power-limited colony *below*
+    /// what a player who throttles can actually produce — it forces every chain
+    /// to 100%, a state this grid cannot serve, and returns roughly 53% of the
+    /// healthy figures. Left at the 240-minute cadence, the manifest shrinks to
+    /// that brownout figure, the freed power makes the colony out-produce it,
+    /// and Hydroponics ends up capped at 0.906 by a nearly-full grain store
+    /// rather than by power: the second-sink gap, not S6.
+    /// `CapacityTests.assessmentUnderstatesAPowerLimitedColony` covers that
+    /// interaction on purpose.
+    ///
+    /// Note the order below: the manifests are assessed on the healthy colony
+    /// *before* the grid is broken, which is what the seeded manifests were
+    /// too. Assessing after would size the quota to the brownout and put the
+    /// other scenario back under test.
     @Test func throttlingFreesPower() {
         let state = GameState.seeded()
         guard let ppIndex = state.colonies[0].productionChains.firstIndex(where: { $0.name == "Power Plant" }) else {
             Issue.record("No Power Plant in seed data")
             return
         }
+
+        // 2,880 game-minutes — wider than the whole run, so the manifest under
+        // delivery stays the one installed here.
+        let quota = QuotaGenerator.generate(
+            id: 1,
+            colony: state.colonies[0],
+            economyRate: GameState.economyRate,
+            issuedAtTick: state.tickCount,
+            intervalMinutes: 2_880
+        )
+        state.currentQuota = quota
+        state.nextQuota = QuotaGenerator.generate(
+            id: 2,
+            colony: state.colonies[0],
+            economyRate: GameState.economyRate,
+            issuedAtTick: quota.dueAtTick,
+            intervalMinutes: 2_880
+        )
+        state.ledger = .empty(for: quota)
+        state.nextQuotaSerial = 3
+
+        // Now break the grid: 90 MW against a demand the colony sized for 240.
         state.colonies[0].productionChains[ppIndex].energyProduced = 90
         tick(state, 200)
 
