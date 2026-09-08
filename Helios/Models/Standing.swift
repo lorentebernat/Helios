@@ -1,11 +1,3 @@
-//
-//  StandingBand.swift
-//  Helios
-//
-//  Created by Bernat on 08/09/2026.
-//
-
-
 // Standing.swift
 // What the Empire thinks of you, and what that changes.
 //
@@ -32,6 +24,14 @@
 // per game-minute and Power Cells 5.2500 per game-minute at every one of them,
 // identical rather than approximate. `StandingTests` pins it, because the way
 // this breaks in future is somebody changing the sizing formula.
+//
+// THE SAME TRAP CATCHES THE STIPEND, IN MIRROR IMAGE. Anything paid per
+// settlement is distorted by cadence: with a flat figure per cycle, income per
+// game-minute would run 0 / 1.25 / 1.25 / 1.00 / 0.75 across the bands, so
+// Patron would pay 40% less per hour than Indifferent — the opposite of §4.1's
+// "bonus stipend". The stipend is therefore paid for the *shipment*, scaled by
+// the cadence it covers, which makes income per game-minute exactly
+// `stipendMultiplier`. See `GameState.payStipend`.
 
 import Foundation
 
@@ -81,12 +81,26 @@ enum StandingBand: Int, Codable, CaseIterable, Comparable {
         }
     }
 
-    /// **Receivership has a floor.** It collects at the dock instead of paying
-    /// (Step 6), and that is the whole of it: it never takes population, never
-    /// takes buildings, and never cascades. Measured over 5,000 ticks at the
-    /// 96-minute cadence, population holds at 450 under a load-1.0 manifest and
-    /// at 101 under a punishing load-4.0 one. Consistent with the bounded-loss
-    /// decision. HELIOS.md §4.1, §21.
+    /// Multiplier on the stipend. Because the stipend is paid per shipment
+    /// rather than per settlement, this is also income per game-minute relative
+    /// to Indifferent — so the ladder reads exactly as it looks.
+    ///
+    /// **Receivership pays nothing and the goods still leave.** At the bottom
+    /// band the Empire collects at the dock: full delivery, no payment. That is
+    /// what makes Receivership genuinely unpleasant without needing to take
+    /// population or buildings. HELIOS.md §4.1.
+    var stipendMultiplier: Double {
+        switch self {
+        case .receivership: return 0.0
+        case .scrutinised:  return 0.7
+        case .indifferent:  return 1.0
+        case .favourable:   return 1.2
+        case .patron:       return 1.5
+        }
+    }
+
+    /// The bottom band, where collection happens at the dock and nothing is
+    /// paid for it.
     var isExtractive: Bool { self == .receivership }
 
     var next: StandingBand? { StandingBand(rawValue: rawValue + 1) }

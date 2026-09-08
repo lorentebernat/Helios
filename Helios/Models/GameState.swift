@@ -31,8 +31,8 @@ final class GameState {
     var tickCount: Int
 
     /// What the Empire thinks of you: an EMA of delivered-over-demanded, banded
-    /// from Receivership to Patron. Sets the cadence and, from Step 6, the
-    /// stipend. HELIOS.md §4.1.
+    /// from Receivership to Patron. Sets the cadence and the stipend.
+    /// HELIOS.md §4.1.
     var standing: Standing
 
     /// The manifest currently being delivered against. `nil` means no demand at
@@ -234,6 +234,20 @@ final class GameState {
     static let economyRate: Double = 1.0   // production, population, research
     static let fleetRate: Double = 1.0     // ship travel, shipyard build time
 
+    /// Credits paid per game-minute of cadence, for a fully met quota at
+    /// Indifferent. **This is the number that closes S3** — before it, `credits`
+    /// was mutated in exactly one place, `credits -=`, and buying an Escort plus
+    /// a Scout left the shipyard permanently dead. HELIOS.md §18 S3.
+    ///
+    /// Calibrated as the brief asks: a met quota at Indifferent pays 300, so a
+    /// Freighter (800 credits) is affordable every 2.67 cycles. Usable, not
+    /// free.
+    ///
+    /// Note it is a rate per game-minute of *cadence*, not a flat figure per
+    /// settlement. See `payStipend` for why that distinction is the whole
+    /// point.
+    static let stipendPerGameMinute: Double = 1.25
+
     // MARK: - Game loop
 
     /// Advances one tick and records the wall-clock time. What the timer calls.
@@ -290,9 +304,9 @@ final class GameState {
         settleQuotaIfDue()
     }
 
-    /// Closes the cycle when `tickCount` reaches the deadline: archive the
-    /// fill, move Standing, promote the announced manifest, announce the one
-    /// after it, clear the ledger.
+    /// Closes the cycle when `tickCount` reaches the deadline: compute the fill,
+    /// pay for the shipment, archive the result, move Standing, promote the
+    /// announced manifest, announce the one after it, clear the ledger.
     ///
     /// Settlement is not bookkeeping — it is what keeps the Empire a
     /// **permanent** sink. A completed manifest has no collectable allowance
@@ -310,12 +324,22 @@ final class GameState {
         guard let settling = currentQuota, settling.isDue(atTick: tickCount) else { return }
 
         let fill = settling.fill(from: ledger)
+
+        // Paid BEFORE Standing moves, deliberately: these goods left the docks
+        // under the posture the Empire held during the cycle, and that was the
+        // price on offer. Otherwise a collapse into Receivership would
+        // retroactively confiscate the shipment you just made. The grace is
+        // symmetrical with the cadence lag — the settlement that drops you to
+        // Receivership still pays at Scrutinised; the next one pays nothing.
+        let paid = payStipend(for: settling, fill: fill)
+
         record(
             QuotaSettlement(
                 quotaID: settling.id,
                 settledAtTick: tickCount,
                 fill: fill,
-                lineFills: settling.lineFills(from: ledger)
+                lineFills: settling.lineFills(from: ledger),
+                stipend: paid
             )
         )
 
@@ -338,11 +362,50 @@ final class GameState {
         nextQuota = generateQuota(issuedAtTick: promoted.dueAtTick)
     }
 
+    /// Pays for one settled shipment, and returns what was paid.
+    ///
+    /// **The stipend is paid per shipment, not per settlement**, which is the
+    /// only reason the band ladder means what it looks like. Cadence changes
+    /// with the band, so a flat figure per cycle would be distorted by it:
+    /// income per game-minute would run 0 / 1.25 / 1.25 / 1.00 / 0.75 from
+    /// Receivership to Patron, and Patron would pay 40% *less* per hour than
+    /// Indifferent — the opposite of §4.1's "bonus stipend". Scaling by the
+    /// cadence the shipment covers makes income per game-minute exactly
+    /// `stipendMultiplier`: 0 / 0.875 / 1.25 / 1.5 / 1.875.
+    ///
+    /// This is the same trap as the demand-rate invariant, in mirror image:
+    /// anything expressed per settlement is at the mercy of the cadence, so it
+    /// has to be expressed per shipment.
+    ///
+    /// Partial fill pays partially — deliver 60% and you are paid 60%. At
+    /// Receivership the multiplier is zero: the Empire collects at the dock and
+    /// pays nothing, and the goods still leave.
+    @discardableResult
+    private func payStipend(for quota: Quota, fill: Double) -> Int {
+        let clampedFill = min(1, max(0, fill))
+        let gross = Self.stipendPerGameMinute
+            * quota.intervalMinutes
+            * clampedFill
+            * standing.band.stipendMultiplier
+        let paid = Int(gross.rounded())
+        guard paid > 0 else { return 0 }
+        credits += paid
+        return paid
+    }
+
     /// The cadence the Empire is currently using, in game-minutes: the base
     /// figure scaled by the Standing band, unless something has pinned it.
     var quotaCadenceMinutes: Double {
         quotaCadenceOverrideMinutes
             ?? standing.cadenceMinutes(base: QuotaGenerator.baseIntervalMinutes)
+    }
+
+    /// What a fully met quota would pay at the current cadence and band. For
+    /// Step 8's panel, and for reasoning about pacing without running a cycle.
+    var stipendForAMetQuota: Int {
+        Int((Self.stipendPerGameMinute
+             * quotaCadenceMinutes
+             * standing.band.stipendMultiplier).rounded())
     }
 
     /// Sizes a manifest from the sector's current assessed capacity at the

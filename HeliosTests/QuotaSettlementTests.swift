@@ -233,7 +233,8 @@ struct QuotaSettlementTests {
             quotaID: 7,
             settledAtTick: 1_680,
             fill: 0.8125,
-            lineFills: ["power-cells": 1.0, "water": 0.25]
+            lineFills: ["power-cells": 1.0, "water": 0.25],
+            stipend: 244
         )
         let data = try JSONEncoder().encode(record)
         #expect(try JSONDecoder().decode(QuotaSettlement.self, from: data) == record)

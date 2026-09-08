@@ -5,11 +5,9 @@
 // reaches everyone with an existing save instead of being frozen out of it.
 // HELIOS.md §18 S14, §21.
 //
-// VERSION 4 (Phase 2 Step 5) adds `standing`. The balance knobs on `GameState`
-// — `quotaLoad`, `quotaCadenceOverrideMinutes` — are deliberately absent: they
-// are tuning, not state, and persisting them would freeze a player on whatever
-// values were live when they last saved, which is the same trap the
-// blueprint-overlay decision exists to avoid.
+// VERSION 5 (Phase 2 Step 6) adds `stipend` to each archived settlement, so
+// the record says what was actually paid rather than what today's rates would
+// pay. VERSION 4 added `standing`.
 //
 // No migration between versions: `SaveStore` treats an unsupported version
 // exactly like a corrupt file, quarantines it, and starts a fresh game. That
@@ -38,7 +36,7 @@ struct GameSave {
     var lastTickAt: Date
 
     init(
-        version: Int = 4,
+        version: Int = 5,
         colonies: [Colony],
         activeColonyID: Colony.ID,
         credits: Int,

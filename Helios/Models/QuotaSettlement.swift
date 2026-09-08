@@ -1,18 +1,10 @@
-//
-//  QuotaSettlement.swift
-//  Helios
-//
-//  Created by Bernat on 07/09/2026.
-//
-
-
 // QuotaSettlement.swift
 // The archived outcome of one settled quota cycle.
 //
 // Step 5 reads `fill` to move Standing (an EMA over settled fills), Step 6
-// reads it to pay the stipend, and Step 8's UI reads `lineFills` to show what
-// went short last cycle. Keeping the record rather than only the latest number
-// is what lets Standing be a slope measured over several cycles rather than a
+// records what it paid, and Step 8's UI reads `lineFills` to show what went
+// short last cycle. Keeping the record rather than only the latest number is
+// what lets Standing be a slope measured over several cycles rather than a
 // switch flipped by one bad shipment. HELIOS.md §4.1.
 
 import Foundation
@@ -27,6 +19,12 @@ struct QuotaSettlement: Codable, Hashable, Identifiable {
     /// Per-line fill, for showing which lines missed rather than only that the
     /// cycle did.
     let lineFills: [Resource.ID: Double]
+
+    /// Credits actually paid for this shipment. Zero at Receivership, where the
+    /// Empire collects at the dock — the goods still left. Recorded rather than
+    /// recomputed so the archive says what happened, not what today's rates
+    /// would have paid.
+    let stipend: Int
 
     var id: Int { quotaID }
 
