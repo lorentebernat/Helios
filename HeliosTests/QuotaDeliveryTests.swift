@@ -2,7 +2,7 @@
 //  QuotaDeliveryTests.swift
 //  HeliosTests
 //
-//  Phase 2 Steps 3–4.
+//  Phase 2 Steps 3–5.
 //
 
 // The ledger's justification, pinned. Every expected figure was measured over
@@ -22,19 +22,22 @@ import Foundation
 @Suite("Quota delivery")
 struct QuotaDeliveryTests {
 
-    /// A seeded game whose manifests use a specific interval and load, with the
-    /// successor announced so settlement promotes rather than regenerates.
-    private func seeded(interval: Double = QuotaGenerator.baseIntervalMinutes,
+    /// A seeded game at a fixed cadence and load, with the successor announced
+    /// so settlement promotes rather than regenerates. The cadence is pinned
+    /// because otherwise Standing moves it mid-measurement — which is exactly
+    /// what these tests are trying to hold still.
+    private func seeded(cadence: Double = QuotaGenerator.baseIntervalMinutes,
                         load: Double = QuotaGenerator.standardLoad) -> GameState {
         let state = GameState.seeded()
         state.quotaLoad = load
+        state.quotaCadenceOverrideMinutes = cadence
 
         let current = QuotaGenerator.generate(
             id: 1,
             colony: state.colonies[0],
             economyRate: GameState.economyRate,
             issuedAtTick: state.tickCount,
-            intervalMinutes: interval,
+            intervalMinutes: cadence,
             load: load
         )
         let next = QuotaGenerator.generate(
@@ -42,7 +45,7 @@ struct QuotaDeliveryTests {
             colony: state.colonies[0],
             economyRate: GameState.economyRate,
             issuedAtTick: current.dueAtTick,
-            intervalMinutes: interval,
+            intervalMinutes: cadence,
             load: load
         )
         state.currentQuota = current
@@ -100,48 +103,54 @@ struct QuotaDeliveryTests {
 
     // MARK: - The ledger's whole justification
 
-    /// **The reason a quota is a ledger and not a snapshot.** Interval length
-    /// must have no economic effect whatsoever, because Step 5 makes cadence a
-    /// pure attention-and-planning mechanic: a shorter interval is a smaller
-    /// shipment, not a heavier one. Measured across 60/240/960/2,880
-    /// game-minutes, stores, population and every chain throughput agree to
-    /// four decimal places, and every cycle settles at fill 1.0000 whether that
-    /// is fifty cycles or one.
-    @Test func intervalLengthDoesNotChangeTheEconomy() {
-        let intervals: [Double] = [60, 240, 960, 2_880]
-        var results: [(interval: Double,
+    /// **The reason a quota is a ledger and not a snapshot**, measured across
+    /// the five cadences Standing actually uses: 96, 168, 240, 360 and 600
+    /// game-minutes.
+    ///
+    /// Interval length must have no economic effect whatsoever, because that is
+    /// what lets cadence be a pure attention-and-planning mechanic: a shorter
+    /// interval is a smaller shipment, not a heavier one. Measured over 3,000
+    /// ticks, the largest store difference across all five is 0.0001 and the
+    /// largest throughput difference is 0.0000, with every cycle settling at
+    /// fill 1.0000 whether that is thirty-one cycles or five.
+    @Test func cadenceLengthDoesNotChangeTheEconomy() {
+        var results: [(cadence: Double,
                        stores: [Resource.ID: Double],
                        population: Double,
                        throughputs: [Double],
-                       lastFill: Double)] = []
+                       lastFill: Double,
+                       cycles: Int)] = []
 
-        for interval in intervals {
-            let state = seeded(interval: interval)
+        for band in StandingBand.allCases {
+            let cadence = QuotaGenerator.baseIntervalMinutes * band.cadenceMultiplier
+            let state = seeded(cadence: cadence)
             run(state, ticks: 3_000)
-            results.append((interval,
+            results.append((cadence,
                             stores(state),
                             state.colonies[0].population.total,
                             state.colonies[0].productionChains.map(\.throughput),
-                            state.settlementHistory.last?.fill ?? -1))
+                            state.settlementHistory.last?.fill ?? -1,
+                            state.settlementHistory.count))
         }
 
         guard let baseline = results.first else { return }
         for result in results {
             #expect(result.lastFill > 0.99,
-                    "interval \(result.interval) settled at fill \(result.lastFill)")
+                    "cadence \(result.cadence) settled at fill \(result.lastFill)")
+            #expect(result.cycles > 0, "cadence \(result.cadence) never settled")
         }
         for result in results.dropFirst() {
             #expect(abs(result.population - baseline.population) <= 1,
-                    "population at interval \(result.interval) was \(result.population) vs \(baseline.population) at 60")
+                    "population at cadence \(result.cadence) was \(result.population) vs \(baseline.population) at 96")
             for id in Resource.all.map(\.id) {
                 let a = baseline.stores[id] ?? -1
                 let b = result.stores[id] ?? -1
                 #expect(abs(a - b) <= 0.01,
-                        "\(id) at interval \(result.interval) settled at \(b) vs \(a) at 60")
+                        "\(id) at cadence \(result.cadence) settled at \(b) vs \(a) at 96")
             }
             for (i, t) in result.throughputs.enumerated() {
                 #expect(abs(t - baseline.throughputs[i]) <= 0.01,
-                        "chain \(i) throughput at interval \(result.interval) was \(t) vs \(baseline.throughputs[i]) at 60")
+                        "chain \(i) throughput at cadence \(result.cadence) was \(t) vs \(baseline.throughputs[i]) at 96")
             }
         }
     }

@@ -1,8 +1,8 @@
 // GameState.swift
 // Empire-scoped observable state. Colonies hold their own stock, population,
 // production and shipyard; the empire holds credits, ships, research — and the
-// Empire's demands: the tick counter, the active quota, the one announced after
-// it, the ledger of what has been delivered, and the archive of settled cycles.
+// Empire's business: the tick counter, Standing, the active quota, the one
+// announced after it, the ledger, and the archive of settled cycles.
 
 import Observation
 import Foundation
@@ -22,15 +22,18 @@ final class GameState {
     /// already in use. HELIOS.md §18 S5.
     var nextShipSerial: Int
 
-    // MARK: - The Empire's clock and demands (Phase 2)
+    // MARK: - The Empire's clock, posture and demands (Phase 2)
 
     /// **The clock the whole Empire runs on.** Monotonic, incremented once at
     /// the top of `tick()`, and persisted — an integer in the save file, not a
     /// `Date`. Quota deadlines compare against this and nothing else, which is
-    /// what keeps `tick()` pure and clock-free: Phase 4's offline replay and
-    /// Phase 9's server reconciliation both depend on it, and the Phase 1.5
-    /// `tickIsDeterministic` test stands guard. HELIOS.md §4.8, §14.
+    /// what keeps `tick()` pure and clock-free. HELIOS.md §4.8, §14.
     var tickCount: Int
+
+    /// What the Empire thinks of you: an EMA of delivered-over-demanded, banded
+    /// from Receivership to Patron. Sets the cadence and, from Step 6, the
+    /// stipend. HELIOS.md §4.1.
+    var standing: Standing
 
     /// The manifest currently being delivered against. `nil` means no demand at
     /// all, which also means no sink — that is S1, and it is only reachable
@@ -49,19 +52,25 @@ final class GameState {
     /// What has actually left the docks against `currentQuota`.
     var ledger: QuotaLedger
 
-    /// Settled cycles, oldest first, capped at `settlementHistoryLimit`. Step 5
-    /// runs Standing's EMA over these; Step 8 shows the last one.
+    /// Settled cycles, oldest first, capped at `settlementHistoryLimit`.
     var settlementHistory: [QuotaSettlement]
 
     /// Monotonic quota id source, same shape and same reason as
     /// `nextShipSerial`: deterministic ids, no UUID inside `tick()`.
     var nextQuotaSerial: Int
 
-    /// Load factor used when sizing a new manifest. A tuning constant in play,
-    /// deliberately **not persisted** — it is balance, not game state — but
-    /// exposed as a property so the balance tests can sweep it across
-    /// settlements. HELIOS.md Appendix C: the usable band is roughly 0.75–1.2.
+    // MARK: - Balance knobs (tuning, not state — deliberately not persisted)
+
+    /// Load factor used when sizing a new manifest. HELIOS.md Appendix C: the
+    /// usable band is roughly 0.75–1.2. Exposed so the balance tests can sweep
+    /// it across settlements.
     var quotaLoad: Double = QuotaGenerator.standardLoad
+
+    /// Holds the cadence fixed instead of taking it from the Standing band.
+    /// Several balance measurements need a constant cadence while something
+    /// else varies — interval-neutrality above all, which cannot be measured if
+    /// the interval moves on its own — and it doubles as a debug knob.
+    var quotaCadenceOverrideMinutes: Double?
 
     static let settlementHistoryLimit = 20
 
@@ -80,6 +89,7 @@ final class GameState {
         ships: [Ship],
         nextShipSerial: Int,
         tickCount: Int,
+        standing: Standing,
         currentQuota: Quota?,
         nextQuota: Quota?,
         ledger: QuotaLedger,
@@ -95,6 +105,7 @@ final class GameState {
         self.ships = ships
         self.nextShipSerial = nextShipSerial
         self.tickCount = tickCount
+        self.standing = standing
         self.currentQuota = currentQuota
         self.nextQuota = nextQuota
         self.ledger = ledger
@@ -107,13 +118,16 @@ final class GameState {
 
     static func seeded() -> GameState {
         let colony = Colony.seeded
+        let cadence = Standing.initial.cadenceMinutes(base: QuotaGenerator.baseIntervalMinutes)
         // A fresh game starts with a real sink already in place, and with the
         // following cycle already announced.
         let current = QuotaGenerator.generate(
-            id: 1, colony: colony, economyRate: economyRate, issuedAtTick: 0
+            id: 1, colony: colony, economyRate: economyRate,
+            issuedAtTick: 0, intervalMinutes: cadence
         )
         let next = QuotaGenerator.generate(
-            id: 2, colony: colony, economyRate: economyRate, issuedAtTick: current.dueAtTick
+            id: 2, colony: colony, economyRate: economyRate,
+            issuedAtTick: current.dueAtTick, intervalMinutes: cadence
         )
         return GameState(
             colonies: [colony],
@@ -122,6 +136,7 @@ final class GameState {
             ships: Ship.samples,
             nextShipSerial: 6,   // seed fleet hand-numbered 1...5 (Ship.swift)
             tickCount: 0,
+            standing: .initial,
             currentQuota: current,
             nextQuota: next,
             ledger: .empty(for: current),
@@ -147,6 +162,7 @@ final class GameState {
             ships: ships,
             nextShipSerial: nextShipSerial,
             tickCount: tickCount,
+            standing: standing,
             currentQuota: currentQuota,
             nextQuota: nextQuota,
             ledger: ledger,
@@ -168,6 +184,7 @@ final class GameState {
             ships: save.ships,
             nextShipSerial: save.nextShipSerial,
             tickCount: save.tickCount,
+            standing: save.standing,
             currentQuota: save.currentQuota,
             nextQuota: save.nextQuota,
             ledger: save.ledger,
@@ -274,25 +291,35 @@ final class GameState {
     }
 
     /// Closes the cycle when `tickCount` reaches the deadline: archive the
-    /// fill, promote the announced manifest, announce the one after it, clear
-    /// the ledger.
+    /// fill, move Standing, promote the announced manifest, announce the one
+    /// after it, clear the ledger.
     ///
     /// Settlement is not bookkeeping — it is what keeps the Empire a
     /// **permanent** sink. A completed manifest has no collectable allowance
     /// left, so without this the Empire stops collecting at the end of the
     /// first interval and the colony saturates by roughly tick 300: S1,
     /// reintroduced by its own fix.
+    ///
+    /// Note where the cadence change lands. Standing moves on the fill of the
+    /// cycle just judged, but the manifest **promoted** here was published a
+    /// cycle ago and keeps the window it was published with; the new cadence
+    /// shapes the manifest **announced** here instead. That one-cycle lag is
+    /// the promise being kept: retooling against a manifest that then changes
+    /// under you would be worthless. HELIOS.md §4.2.
     private func settleQuotaIfDue() {
         guard let settling = currentQuota, settling.isDue(atTick: tickCount) else { return }
 
+        let fill = settling.fill(from: ledger)
         record(
             QuotaSettlement(
                 quotaID: settling.id,
                 settledAtTick: tickCount,
-                fill: settling.fill(from: ledger),
+                fill: fill,
                 lineFills: settling.lineFills(from: ledger)
             )
         )
+
+        standing.settle(fill: fill)
 
         // The announced manifest becomes the live one. Its window was stamped
         // when it was published, so it starts exactly now and there is nothing
@@ -303,30 +330,34 @@ final class GameState {
         if let announced = nextQuota, announced.issuedAtTick == tickCount {
             promoted = announced
         } else {
-            promoted = generateQuota(issuedAtTick: tickCount, intervalMinutes: settling.intervalMinutes)
+            promoted = generateQuota(issuedAtTick: tickCount)
         }
 
         currentQuota = promoted
         ledger.reset(for: promoted)
-        nextQuota = generateQuota(issuedAtTick: promoted.dueAtTick, intervalMinutes: promoted.intervalMinutes)
+        nextQuota = generateQuota(issuedAtTick: promoted.dueAtTick)
     }
 
-    /// Sizes a manifest from the sector's current assessed capacity.
-    ///
-    /// The cadence carries forward from the manifest being replaced rather than
-    /// resetting to the base figure, so Step 5 can set it once from the Standing
-    /// band and have it stick.
+    /// The cadence the Empire is currently using, in game-minutes: the base
+    /// figure scaled by the Standing band, unless something has pinned it.
+    var quotaCadenceMinutes: Double {
+        quotaCadenceOverrideMinutes
+            ?? standing.cadenceMinutes(base: QuotaGenerator.baseIntervalMinutes)
+    }
+
+    /// Sizes a manifest from the sector's current assessed capacity at the
+    /// current cadence.
     ///
     /// TODO Phase 7: "the sector" is one colony today. Multi-colony assessment
     /// should sum installed capacity across colonies, since Standing and quota
     /// are sector-scoped in the fiction (HELIOS.md §4.1).
-    private func generateQuota(issuedAtTick: Int, intervalMinutes: Double) -> Quota {
+    private func generateQuota(issuedAtTick: Int) -> Quota {
         QuotaGenerator.generate(
             id: mintQuotaID(),
             colony: colonies[activeIndex],
             economyRate: Self.economyRate,
             issuedAtTick: issuedAtTick,
-            intervalMinutes: intervalMinutes,
+            intervalMinutes: quotaCadenceMinutes,
             load: quotaLoad
         )
     }

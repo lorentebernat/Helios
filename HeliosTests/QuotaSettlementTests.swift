@@ -1,20 +1,17 @@
 //
 //  QuotaSettlementTests.swift
-//  Helios
-//
-//  Created by Bernat on 07/09/2026.
-//
-
-
-//
-//  QuotaSettlementTests.swift
 //  HeliosTests
 //
-//  Phase 2 Step 4.
+//  Phase 2 Steps 4–5.
 //
 
 // Settlement, the tick counter that drives it, and the promise that the next
 // manifest is always visible.
+//
+// Tests that count cycles pin the cadence: from Step 5 the Standing band sets
+// it, and a perfectly delivering colony is promoted twice in the first two
+// cycles, so an unpinned cadence goes 240 → 360 → 600 mid-measurement.
+// `theCadenceFollowsTheBandWhenNotPinned` covers that on purpose.
 
 import Testing
 import Foundation
@@ -25,6 +22,13 @@ struct QuotaSettlementTests {
 
     private func run(_ state: GameState, ticks: Int) {
         for _ in 0..<ticks { state.tick() }
+    }
+
+    /// A fresh game with the cadence held at the Indifferent figure.
+    private func fixedCadence() -> GameState {
+        let state = GameState.seeded()
+        state.quotaCadenceOverrideMinutes = QuotaGenerator.baseIntervalMinutes
+        return state
     }
 
     // MARK: - The clock
@@ -54,7 +58,7 @@ struct QuotaSettlementTests {
     /// Cadence in game-minutes becomes ticks once, in `QuotaGenerator`, so a
     /// deadline is an integer comparison and never a `Date`.
     @Test func cyclesRunAtTheirNominalCadence() {
-        let state = GameState.seeded()
+        let state = fixedCadence()
         guard let quota = state.currentQuota else { return }
         let interval = quota.intervalTicks
 
@@ -67,6 +71,20 @@ struct QuotaSettlementTests {
         }
     }
 
+    /// Unpinned, the cadence follows Standing — and a perfect run stretches it.
+    /// The first cycle runs 240 ticks at Indifferent, then the band promotes and
+    /// the announced manifest carries 360, then 600 at Patron.
+    @Test func theCadenceFollowsTheBandWhenNotPinned() {
+        let state = GameState.seeded()
+        run(state, ticks: 240 + 240 + 360)
+
+        let ticks = state.settlementHistory.map(\.settledAtTick)
+        #expect(ticks == [240, 480, 840],
+                "expected settlements at 240/480/840 as the cadence stretches, got \(ticks)")
+        #expect(state.standing.band == .patron)
+        #expect(state.quotaCadenceMinutes == 600)
+    }
+
     // MARK: - The next manifest is a promise, not a surprise
 
     /// A quota you cannot see coming is a dice roll, not a decision — the player
@@ -75,7 +93,7 @@ struct QuotaSettlementTests {
         let state = GameState.seeded()
         #expect(state.nextQuota != nil, "a fresh game must already announce the following cycle")
 
-        for _ in 0..<600 {
+        for _ in 0..<1_200 {
             state.tick()
             #expect(state.nextQuota != nil, "nextQuota went nil at tick \(state.tickCount)")
             guard let current = state.currentQuota, let next = state.nextQuota else { continue }
@@ -126,7 +144,7 @@ struct QuotaSettlementTests {
         var mirror = QuotaLedger(quotaID: 1)
         mirror.deliver("ration-bars", 10)
         #expect(abs(quota.fill(from: mirror) - 0.5) < 1e-9,
-                "expected 0.5, got \(mirror.amountDelivered(of: "ration-bars"))")
+                "expected 0.5, got \(quota.fill(from: mirror))")
     }
 
     @Test func fillNeverExceedsOne() {
@@ -155,7 +173,7 @@ struct QuotaSettlementTests {
     }
 
     @Test func historyIsCappedAndKeepsTheNewest() {
-        let state = GameState.seeded()
+        let state = fixedCadence()
         guard let quota = state.currentQuota else { return }
         let cycles = GameState.settlementHistoryLimit + 5
         run(state, ticks: quota.intervalTicks * cycles)
@@ -171,8 +189,8 @@ struct QuotaSettlementTests {
     // MARK: - Persistence
 
     /// Force-quit mid-cycle and relaunch: same quota, same ledger, same
-    /// deadline, same announced successor — and it settles on the same tick with
-    /// the same manifest.
+    /// deadline, same announced successor, same Standing — and it settles on the
+    /// same tick with the same manifest.
     @Test func quotaStateSurvivesARoundTrip() throws {
         let original = GameState.seeded()
         guard let firstQuota = original.currentQuota else { return }
@@ -186,6 +204,7 @@ struct QuotaSettlementTests {
         let restored = GameState(save: try JSONDecoder().decode(GameSave.self, from: data))
 
         #expect(restored.tickCount == original.tickCount, "tickCount did not survive")
+        #expect(restored.standing == original.standing, "standing did not survive")
         #expect(restored.currentQuota == original.currentQuota, "currentQuota did not survive")
         #expect(restored.nextQuota == original.nextQuota, "nextQuota did not survive")
         #expect(restored.ledger == original.ledger, "ledger did not survive")
@@ -202,6 +221,7 @@ struct QuotaSettlementTests {
                 "the restored game settled differently")
         #expect(original.currentQuota == restored.currentQuota,
                 "the restored game promoted a different manifest")
+        #expect(original.standing == restored.standing, "standing diverged after the round trip")
         for id in Resource.all.map(\.id) {
             #expect(original.colonies[0].stock.amount(of: id) == restored.colonies[0].stock.amount(of: id),
                     "stock diverged for \(id) after the round trip")
@@ -222,7 +242,7 @@ struct QuotaSettlementTests {
     // MARK: - Determinism, still
 
     /// The property Phase 4's replay and Phase 9's reconciliation rest on, now
-    /// with settlement, promotion and generation inside the loop.
+    /// with settlement, promotion, Standing and generation inside the loop.
     @Test func settlementIsDeterministic() {
         let a = GameState.seeded()
         let b = GameState.seeded()
@@ -233,6 +253,7 @@ struct QuotaSettlementTests {
         }
 
         #expect(a.tickCount == b.tickCount)
+        #expect(a.standing == b.standing, "standing diverged")
         #expect(a.currentQuota == b.currentQuota, "current manifests diverged")
         #expect(a.nextQuota == b.nextQuota, "announced manifests diverged")
         #expect(a.ledger == b.ledger, "ledgers diverged")

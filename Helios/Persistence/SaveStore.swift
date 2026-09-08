@@ -22,7 +22,7 @@ enum SaveStore {
     /// The version this build knows how to load. A `GameSave.version` other
     /// than this is treated exactly like a corrupt file: some other build
     /// (older or newer) wrote it, and this one has no migration for it yet.
-    static let supportedVersion = 3
+    static let supportedVersion = 4
 
     private enum StoreError: Error {
         case noApplicationSupportDirectory
