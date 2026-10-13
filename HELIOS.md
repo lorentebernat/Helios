@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Status** | Authoritative. Nothing else in this repo overrides it. |
-| **Last reconciled** | 28 August 2026, against commit `e5ae9ca`. Balance figures re-measured same day (Appendix C). |
+| **Last reconciled** | 13 October 2026, after Phase 2. Every balance figure in Appendix C re-measured against the live allocator during that phase — the 28 Aug figures were wrong and are corrected there. |
 | **Supersedes** | `HELIOS_DESIGN.md`, `HELIOS_ROADMAP.md`, `HELIOS_WORLD.md` — all three now stubs pointing here. Their full text is in git history. |
 | **Reference, not authority** | `OGAME_COMPARISON.md` (research input), `sources/` (Anno 1800 library), `AUDIT-2026-08-28.md` in the Claude project (point-in-time snapshot) |
 
@@ -238,18 +238,41 @@ storage becomes a buffer for *timing* rather than a ceiling on ambition.
 Quota per good is set from that good's **measured export capacity** — production
 net of colonist consumption — times the interval, times a load factor.
 
-**Load 1.0 is the target.** Measured (Appendix C):
+**Load 1.0 is the target.** Re-measured after Phase 2, against corrected
+capacity figures (Appendix C):
 
-| Load | Stores settle at | Chains at full rate | Population |
+| Load | Settled fill | Stores settle at | Population |
 |---|---|---|---|
-| 0.5 | 97% — still saturated | 2/10 | 450 |
-| **1.0** | **3–7% tradeables** | **8/10 at 99–100%** | **450** |
-| 1.5 | 9% | 8/10 | 398 — colonists dying |
-| 3.0 | 5% | 8/10 | 192 — colony collapsing |
+| 0.5 | 1.000 | 98% — still saturated | 450 |
+| 0.75 | 1.000 | 95% — still saturated | 450 |
+| **1.0** | **1.000** | **29% mean** | **450** |
+| 1.2 | 0.783 | 17% | 439 — colonists dying |
+| 3.0 | 0.489 | 56% | 229 — colony collapsing |
 
 Below ~0.75 the quota is too small to be a sink and the colony stays saturated.
 Above ~1.2 the quota starts eating the colony. **The usable band is narrow**, and
 that is the single most important balance fact in the game.
+
+### Load 1.0 is meetable with no effort at all, and that is now the open question ▲
+
+With capacity measured correctly, a quota sized at load 1.0 asks for exactly
+what the colony can spare — so an untouched colony fills it completely, every
+cycle, for ever. Measured: fill 1.000 cycle after cycle, Settler happiness
+1.000, and Standing climbing to Patron **in two settlements** with no way back
+down. Every mechanism in §4.1 and §4.3 works and sits inert, because there is
+no way to fail.
+
+The squeeze this document describes — "settlers sit at 0.86 happiness because
+the Empire is taking their Alloy Tools" — was real, but it came from the Phase 1a
+debug sink draining ~2% faster than the colony could produce (53% faster on
+Ration Bars), i.e. from an *accidental* load of about 1.02. It does not exist at
+1.00.
+
+Since fill is approximately `min(1, 1/load)`, tension and reliability are a
+direct trade: at 1.1 fill is 0.824 and the band oscillates
+Indifferent/Favourable; at 1.2 it is 0.783 and oscillates
+Scrutinised/Indifferent. **Deliberately left at 1.0 leaving Phase 2**, because
+the honest fix is not a load number — it is the second sink (§20, Phase 5).
 
 ### Colonists eat first, and the Empire cannot take their food ▲
 
@@ -340,6 +363,14 @@ the design grows.**
 ### 4.8 Cadence and the real-time clock
 
 Quota intervals are **real-time**, and their length is set by Standing (§4.1).
+
+**Clarification, Phase 2 ▲:** cadence is expressed in **game-minutes**, and
+becomes real-world time for free when Phase 4 dials `economyRate` to 1/60. A
+deadline is an absolute tick count compared against `GameState.tickCount`, never
+a `Date` — `tick()` has to stay pure and clock-free or Phase 4's replay and
+Phase 9's reconciliation both break, and the Phase 1.5 `tickIsDeterministic`
+test stands guard over it. The intent below is unchanged; this is how it gets
+there without building it twice.
 
 Two consequences to be explicit about:
 
@@ -612,7 +643,7 @@ workforce squeeze from being trivially solved by relocation.
 | Escort | 60 | 25 | 40 | 1,200 | 12 | ×1.2 |
 | Explorer | 50 | 20 | 50 | 1,500 | 15 | ×1.5 |
 
-**Planned (Phase 2):** cargo as a real integer; **loading is a withdrawal**,
+**Planned (Phase 3):** cargo as a real integer; **loading is a withdrawal**,
 arrival is a deposit; fuel that occupies cargo space; a speed slider trading fuel
 for time; a fleet moves at the speed of its slowest ship.
 
@@ -806,6 +837,7 @@ App/            HeliosApp, ContentView, RootView
 DesignSystem/   DesignSystem, ModelStyles
 Shared/         VoidBackground, CircleGlassButton, GlassTabBar, Format
 Backgrounds/    PlanetBackdrop
+Persistence/    SaveStore
 Models/         see §17
 Components/     see §17
 Screens/        MainColonyView, ProductionListView, ProductionDetailView,
@@ -860,7 +892,14 @@ extension: `ChainStatus.tint/indicator`, `ShipStatus.tint`, `DangerLevel.tint`,
 
 ## 17. Verified inventory
 
-**44 Swift files.** Tests are untouched Xcode boilerplate (3 files).
+**44 Swift files**, as of commit `e5ae9ca`. ⚠️ **The table below is a Phase 0–1a
+snapshot and has not been re-counted since.** Phases 1.5 and 2 added
+`SaveStore`, `GameSave`, `ChainID`, `ResearchID`, `ShipID`, `ShipNameGenerator`,
+`SeededGenerator`, `CapacityProbe`, `Quota`, `QuotaGenerator`, `QuotaLedger`,
+`QuotaSettlement`, `QuotaDetailNav`, `Standing`, `Commission`,
+`CommissionGenerator`, `QuotaPanel`, `QuotaLineRow`, `CommissionCard` and
+`QuotaDetailView`, and removed `DebugSink`. Tests are no longer boilerplate:
+six suites across five files. Re-count when §17 next matters.
 
 | Group | Files |
 |---|---|
@@ -890,9 +929,9 @@ for 1,200 ticks against `GameState.seeded()`.
 
 | # | Issue | Severity | Answered by |
 |---|---|---|---|
-| **S1** | **The simulation stops.** By ~tick 60 every store is at capacity, population is pinned at both caps, and nine of ten chains read "Output full" forever. No sink exists: production out-runs population and nothing else consumes anything. Retuning moves the saturation point, it does not remove it. **Output % does not fix this** — verified by simulation; only a sink does. | Critical | Quota (§4.2); debug sink in Phase 1a |
+| **S1** | **Resolved, Phase 2 (4–13 Oct 2026).** Quota delivery is the sink. Measured over 5,000 ticks with no player action: no chain reports `.stalled`, every chain but the two structural Refined Alloy consumers runs at exactly the rate it was asked for, mean store fill is 0.40 and population holds at 450. The sink is *permanent* because settlement starts a new cycle — a completed manifest has no collectable allowance left, and an early version of this phase shipped without that and saturated by ~tick 300, which is S1 arriving through its own fix. One store is deliberately not low: oxygen holds a full tank, a one-off ~200-unit surplus the seed colony's population ramp deposits and which nothing at load 1.0 removes. It is a survival buffer, not saturation — the Recycler runs at 100% and the output-% lever still moves it — and it is pinned by a test. | — | Done |
 | **S2** | **No player agency over the economy.** Two actions exist in the whole app. Output %, workforce, building, starting research: none. | Critical | Output % (Phase 1a) |
-| **S3** | **Credits only decrease.** `credits -=` is the sole mutation. Buy an Escort and a Scout and the shipyard is permanently dead. | Critical | Stipend (§4.7) |
+| **S3** | **Resolved, Phase 2 (4–13 Oct 2026).** A stipend is paid on settlement, scaled by fill and by the Standing band: 300 credits for a met quota at Indifferent, which puts a Freighter within 2.67 cycles. Receivership pays nothing and the goods still leave. Twenty settled cycles from the seed state earn enough for two Freighters several times over, which is the regression test. Note the opposite problem is now visible and deferred: credits outrun their sink until Writs land in Phase 5, and materials — Refined Alloy above all — remain the real constraint. | — | Done |
 | **S4** | **Resolved, Phase 1.5 (2–4 Sep 2026).** Every model that isn't authored data round-trips through `Codable`; `GameSave` (versioned) is written atomically to Application Support on `scenePhase` → background/inactive and loaded at launch, falling back to a fresh game on a missing, corrupt, or unsupported-version file (quarantined as `save.corrupt.json` rather than destroyed). | — | Done |
 | **S5** | **Resolved, Phase 1.5 (2 Sep 2026).** `ShipID` replaces `Ship.id = UUID()`; a monotonic `GameState.nextShipSerial`, itself part of saved state, mints ids deterministically. `tickIsDeterministic` pins two identically-seeded runs to identical stock, throughput and ship ids over 200 ticks. | — | Done |
 | **S6** | **Resolved, Phase 1a (28 Aug 2026).** Grid demand used `energyRequired × outputCap` computed *before* input allocation, so an input-starved chain still booked full power draw. Fixed: demand now scales by `outputPercent` too, reflecting what each chain will actually draw. | — | Done |
@@ -987,18 +1026,33 @@ the brief that actually shipped this phase scoped it out. S9 stays open.
 prerequisite, not a convenience. It is also a day's work now and grows with every
 new model.
 
-### Phase 2 — The Empire ▲ *new*
+### Phase 2 — The Empire ▲ ✅ complete *(4–13 Oct 2026, nine commits — `briefs/phase-2-the-empire.md`)*
 
 The narrative layer, and the fix for S1/S3.
 
-- Quota: manifest generation, delivery, settlement, shortfall
-- Stipend on settlement
-- Standing: reliability ratio, bands, hysteresis, cadence
-- Commissions (optional contracts)
-- Basic UI: what's owed, when, what you have
+| Item | Status |
+|---|---|
+| `CapacityProbe` — installed export capacity, measured rather than derived | ✅ |
+| Quota: manifest generation, ledger delivery, settlement, shortfall | ✅ |
+| `GameState.tickCount` — the persisted integer clock the Empire runs on | ✅ |
+| Standing: reliability EMA, bands, hysteresis, cadence | ✅ |
+| Stipend on settlement | ✅ |
+| Commissions (optional contracts) | ✅ |
+| UI: quota panel, detail screen, next cycle, commission card | ✅ |
 
 **Why before cargo:** quota is what makes hauling matter. Building the fleet↔economy
 loop first means building it without a reason for anything to move.
+
+**What it closed:** S1 and S3, both by measurement rather than by argument — see
+§18 and Appendix C.
+
+**What it left open, and this is the important part:** at load 1.0 the quota is
+meetable with no effort, so Standing reaches Patron in two settlements and
+commissions are almost never worth accepting. Both mechanisms are correct and
+both are inert. The cause is that the colony has no spare capacity, and there is
+no load that gives both drained stores *and* spare capacity — by construction,
+since spare capacity **is** stores filling up. The missing piece is a second
+sink, which is Phase 5's `Building` work. Quota is pressure; building is agency.
 
 ### Phase 3 — Fleet ↔ economy loop *(was Phase 2)*
 
@@ -1309,6 +1363,134 @@ relaunch. Nothing above makes that awkward: `GameSave` is a plain versioned
 struct with explicit `CodingKeys`, so a ledger is an additive field, not a
 redesign.
 
+### Narrative and balance — Phase 2 (4–13 Oct 2026)
+
+**Assessed capacity is *installed* capacity, not actual output** *(simulated)*.
+Capacity is measured with every chain forced to `outputPercent = 1`. **Rejected:**
+scaling quota with what the colony currently produces — turning a chain down
+would lower next cycle's demand, and the optimal play would become running the
+colony at minimum. That is the standing spiral arriving through a side door.
+Throttling changes what you deliver this cycle, never what is asked of you next
+cycle.
+
+A measured consequence, recorded because it is not obvious: a **power-limited**
+colony assesses *below* what a player who throttles can actually produce, since
+the probe forces every chain to 100% — a state the grid cannot serve. With the
+Power Plant at 90 MW instead of 240, measured capacity comes back at ~53% of
+the healthy figures. Under-assessment errs toward the player, which is the safe
+direction; the alternative — measuring the best output achievable under some
+throttling strategy — would have the Empire optimise on the player's behalf and
+the assessment *rise* the moment they played well. The cost is surplus with
+nowhere to go, which is the second-sink gap again.
+
+**Cadence is expressed in game-minutes until Phase 4.** §4.8 calls it
+"real-time", and that remains the intent; a deadline is an absolute tick count
+compared against a persisted `tickCount`. **Rejected:** comparing `Date()` inside
+`tick()` — it breaks Phase 4's replay, Phase 9's reconciliation and the Phase 1.5
+determinism test, all three.
+
+**No new currency without a sink.** Commissions pay Standing and credits, not
+Favour. Favour waits for Phase 5, where Dispensations give it somewhere to go.
+Introducing a currency with a source and no sink is precisely how `credits`
+became S3, and doing it a second time with the lesson in writing would be
+careless.
+
+**The load factor is left at 1.0, and it is the question Phase 2 hands forward.**
+See §4.2. Measured: fill ≈ `min(1, 1/load)`, so reliability and tension are a
+direct trade, and no load setting produces both empty stores and spare capacity.
+
+### Implementation — Phase 2 (4–13 Oct 2026)
+
+**Appendix C's published figures were wrong, and every one of them was wrong in
+the same direction.** Each exceeded the arithmetic ceiling of the seed network at
+full population — Ration Bars 0.23 against a hard ceiling of 0.15 (the Synth's
+6.00/min minus 5.85/min eaten by 450 colonists), Water 0.56 against 0.50, and so
+on down the table, by a near-constant +0.06/min. The cause was averaging across
+the colony's population ramp (248 → 450 colonists), when fewer colonists were
+eating. Noise on wide-margin goods; decisive on Ration Bars, whose true margin is
+0.15. **Lesson worth keeping: a measurement that includes a transient is not a
+measurement of the steady state**, and the tell was that every figure was high
+rather than scattered.
+
+**The capacity probe's window is counted in game-minutes, not ticks.** The same
+mistake, arriving through the unit: a 200-*tick* settle is 3.3 game-minutes at
+Phase 4's 1/60 rate and lands entirely inside that same ramp, which would have
+inflated every manifest 2–15× the moment the rate was dialled down, with nothing
+to say why. Caught by a test asserting the manifest is unchanged at
+`economyRate` 1/60.
+
+**A quota is a ledger, not a snapshot** — already decided above, now measured.
+Stores, population and every chain throughput are identical to four decimal
+places at cadences of 96, 168, 240, 360 and 600 game-minutes, and every cycle
+settles at fill 1.0000. Interval length has no economic effect at all, which is
+exactly what the cadence bands require.
+
+**Delivery is paced by schedule, not by a per-tick rate cap.** Identical in
+steady state, but it can clear a backlog after a lull, and — critically — it can
+never run *ahead*. **Rejected:** a lead allowance letting the dock collect early.
+Measured with 25% lead at a 2,880-minute cadence, Alloy Tools sits at zero for
+2,160 game-minutes, Settler happiness goes to zero and the colony dies of
+attrition. Running ahead empties a store, completes the line partway through the
+cycle and leaves the rest of the interval with no sink.
+
+**One clock.** `tickCount` is the only measure of elapsed time; the ledger
+carries deliveries and nothing else, and the quota owns its own tick window.
+**Rejected:** leaving the ledger's own `elapsedMinutes` alongside `tickCount` —
+that is the exact shape of §18 S7, where `Colony.gridFactor` re-derived what the
+allocator had already computed and the two agreed only by coincidence of reading
+the same inputs.
+
+**The stipend is paid per shipment, not per settlement.** The brief's formula was
+a flat figure per cycle, but cadence changes with the band, so a flat figure is
+at its mercy: income per game-minute would have run 0 / 1.25 / 1.25 / 1.00 / 0.75
+from Receivership to Patron, and **Patron would have paid 40% less per hour than
+Indifferent** — the exact opposite of §4.1's "bonus stipend". Scaling by the
+cadence the shipment covers makes income per game-minute exactly the band
+multiplier. This is the demand-rate invariant in mirror image, and the general
+rule is worth stating once: **anything expressed per settlement is distorted by
+cadence.**
+
+**The stipend is paid before Standing moves.** The goods left under the posture
+the Empire held during that cycle, and that was the price on offer. Paying
+afterward would let a collapse into Receivership retroactively confiscate the
+shipment just made. Symmetrical with the cadence lag — a band change shapes the
+manifest *announced* at settlement, never the one promoted, because an announced
+manifest that changes under you is worthless to retool against.
+
+**The reserve floor binds the Empire, not the colonists.** `Population.applyTick`
+runs before production and before delivery, so colonists draw first and are not
+floor-limited — they must not be, or they would starve with food in the
+warehouse. Measured at load 4.0, water reaches 42 against a floor of 60 and
+oxygen 9.1 against 60, every unit of it a colonist eating, while the Empire's own
+draw crosses the floor zero times in 3,000 ticks. The floor itself is re-confirmed
+as load-bearing: without it, load 3.0 ends at 108 colonists instead of 206 and
+load 4.0 ends at zero instead of 101. The reserved set is now *derived* from
+`ColonistTier.basicNeeds` rather than hand-listed, so a tier gaining a basic need
+in Phase 5 protects that good automatically.
+
+**A commission is pass or fail, and sized from storage headroom.** A quota is
+graded because you had no say in it; a commission is a bet you chose, so 99%
+delivered pays what 0% pays. **Rejected,** both measured and both degenerate:
+sizing from *flow*, which is unmeetable at load 1.0 because the quota already
+takes 100% of capacity; and sizing from *current stock*, which is always met and
+eats the entire buffer in one go, after which every later contract is worth
+nothing because the buffer never regrows.
+
+**The sink has to be permanent, and settlement is what makes it so.** Recorded
+because it was shipped broken and caught by test: a completed manifest has no
+collectable allowance left, so without a cycle rollover the Empire stops
+collecting at the end of the first interval. Whatever replaces a sink has to
+drain forever, the way the thing it replaced did.
+
+### Working method — Phase 2 (13 Oct 2026)
+
+**"Full files, never elided" is not a style preference, and Phase 2 paid for
+re-learning it.** Step 7 was handed over as a dozen dispersed block edits to
+five files instead of complete files; nine compile errors followed, every one of
+them a block that had not landed — a missing method, an initialiser that never
+got its new parameters, a struct closed early. §22 already said this, twice, with
+two prior incidents attached. It is now said a third time with a third.
+
 ### Explicitly not taking
 
 From `OGAME_COMPARISON.md` §4:
@@ -1499,33 +1681,56 @@ run against `GameState.seeded()`. Scripts live in `tools/`; re-run them whenever
 the chain network, resource capacities or population tuning change — **every
 number below is a measurement of the current seed data, not a constant.**
 
-### Export capacity
+### Export capacity ▲ corrected
 
 Production net of colonist consumption at full population (300 Survivors + 150
-Settlers), measured with a perfect sink over 2,500 game-minutes:
+Settlers), measured by `CapacityProbe` — the real allocator run on a sandboxed
+copy of the colony with every chain forced to 100% output.
 
-| Good | per game-minute | per game-hour |
-|---|---|---|
-| Power Cells | 5.31 | 319 |
-| Raw Ore | 5.09 | 305 |
-| Alloy Tools | 2.80 | 168 |
-| Oxygen | 2.31 | 138 |
-| Raw Ice | 2.07 | 124 |
-| Grain | 2.06 | 123 |
-| Water | 0.56 | 33 |
-| Ration Bars | 0.23 | 14 |
-| Refined Alloy | **0.04** | 3 |
+| Good | per game-minute | per game-hour | 28 Aug figure |
+|---|---|---|---|
+| Power Cells | 5.25 | 315 | ~~5.31~~ |
+| Raw Ore | 5.00 | 300 | ~~5.09~~ |
+| Alloy Tools | 2.75 | 165 | ~~2.80~~ |
+| Oxygen | 2.25 | 135 | ~~2.31~~ |
+| Raw Ice | 2.00 | 120 | ~~2.07~~ |
+| Grain | 2.00 | 120 | ~~2.06~~ |
+| Water | 0.50 | 30 | ~~0.56~~ |
+| Ration Bars | 0.15 | 9 | ~~0.23~~ |
+| Refined Alloy | **0.00** | 0 | ~~0.04~~ |
 
-**Refined Alloy is the structural bottleneck.** The Smelter supplies 7/min while
-the Tool Fab and Cell Factory demand 5 + 3 = 8/min, so both consumers sit
-permanently at **87.5%** and Refined Alloy has essentially no exportable surplus.
-This is currently an accident of seed data, not a designed constraint — but it is
-a *good* accident: it is a legible, diagnosable bottleneck sitting exactly where
-the first upgrade decision should go. Keep it, and make it deliberate.
+**Why the 28 August figures were wrong.** Every one of them exceeded the
+arithmetic ceiling of the seed network at full population, by a near-constant
++0.06/min — the signature of a measurement averaged across the colony's
+population ramp (248 → 450 colonists over ~90 game-minutes), when fewer
+colonists were eating. The ceilings are checkable by hand and need no simulation
+at all:
 
-Note also how thin Water (0.56) and Ration Bars (0.23) are. Any quota naming them
-is near the edge of what the colony can spare, which is why sizing must be
-per-good rather than a single tonnage.
+- **Ration Bars:** Synth 6.00 max − 3.60 (survivors) − 2.25 (settlers) = **0.15**
+- **Water:** Reclaimer 12.00 − 6 (hydroponics) − 4 (synth) − 1.50 (settlers) = **0.50**
+- **Oxygen:** Recycler 12.00 − 6.00 − 3.75 = **2.25**
+- **Raw Ice:** 20 − 8 − 10 = **2.00** · **Grain:** 10 − 8 = **2.00** · **Raw Ore:** 15 − 10 = **5.00**
+- **Power Cells:** 6 × 7/8 = **5.25** · **Alloy Tools:** 4 × 7/8 − 0.75 = **2.75**
+
+**Refined Alloy is the structural bottleneck, and its true surplus is zero.** The
+Smelter supplies 7/min while the Tool Fab and Cell Factory demand 5 + 3 = 8/min,
+so both consumers sit permanently at **87.5%** and nothing is left to export. The
+0.04 published in August was the debug sink's own draw, not production. This is
+an accident of seed data rather than a designed constraint — but a *good*
+accident: a legible, diagnosable bottleneck sitting exactly where the first
+upgrade decision should go. Keep it, and make it deliberate.
+
+Note how thin Water (0.50) and Ration Bars (0.15) are. Any quota naming them is
+at the edge of what the colony can spare, which is why sizing must be per-good
+rather than a single tonnage — and why the manifest generator refuses to name
+any good below 0.05/min.
+
+**These rates became the quota's rates.** `DebugSink` is gone; what it was
+standing in for now does its job for real. Its hard-coded drain figures were the
+August table, which means the Phase 1a sink was quietly running at an effective
+load of ~1.02 — and 1.53 on Ration Bars. That accidental over-draw is what
+produced the "stores settle at 3–7%" and "settler happiness 0.86" figures this
+appendix used to report; neither survives at an honest load of 1.00.
 
 ### Steady state at load 1.0
 
@@ -1534,29 +1739,102 @@ per-good rather than a single tonnage.
 | Ice Harvester | 100% | — |
 | Ore Extractor | 100% | — |
 | Power Plant | 100% | — |
-| Water Reclaimer | 100% | raw-ice (marginal) |
-| Oxygen Recycler | 100% | raw-ice (marginal) |
+| Water Reclaimer | 100% | — |
+| Oxygen Recycler | 100% | — |
 | Hydroponics Bay | 100% | — |
-| Ration Bar Synth | 99% | grain (marginal) |
-| Alloy Smelter | 99% | raw-ore (marginal) |
-| Alloy Tool Fab | **86%** | **refined-alloy** |
-| Cell Factory | **86%** | **refined-alloy** |
+| Ration Bar Synth | 100% | — |
+| Alloy Smelter | 100% | — |
+| Alloy Tool Fab | **87.5%** | **refined-alloy** |
+| Cell Factory | **87.5%** | **refined-alloy** |
 
-Stores settle at 0–7% for tradeables and hold at the 30% reserve for oxygen,
-rations and water. Population stable at 450. **Settler happiness 0.86** — the
-Empire is taking their Alloy Tools, which blocks promotion.
+Population stable at 450, every cycle settling at fill 1.0000. Stores (fraction
+of capacity): raw-ice 0.48, raw-ore 0.30, power-cells 0.27, water 0.32, grain
+0.15, oxygen **0.98**, ration-bars 0.58, refined-alloy 0.05, alloy-tools 0.46.
 
-Six of those chains report `limited` while running at 99–100%. That is §18 S15.
+**Oxygen's full tank is understood, not accidental.** The seed colony starts at
+248 Survivors and 0 Settlers and ramps to 450 over ~90 game-minutes; nobody eats
+the ~200 units of oxygen that difference represents, which is exactly the
+capacity of the tank, and at load 1.0 the Empire's draw equals net production so
+nothing ever removes it. It is a survival buffer rather than saturation: the
+Recycler runs at 100% (population eats before industry, which opens exactly
+enough headroom each tick), nothing stalls, and the player's lever still works —
+at 50% output, oxygen falls to 3% and population to 268. Sweeping it would cut
+life-support slack from ~20 minutes to ~6, which is a worse colony for a tidier
+number.
+
+### Cadence is economically neutral
+
+Measured over 3,000 ticks at each of the five cadences Standing actually uses:
+
+| Band | Cadence | Settled fill | Population | Largest store delta vs 96 min |
+|---|---|---|---|---|
+| Receivership | 96 min | 1.0000 | 450 | — |
+| Scrutinised | 168 min | 1.0000 | 450 | 0.0000 |
+| Indifferent | 240 min | 1.0000 | 450 | 0.0001 |
+| Favourable | 360 min | 1.0000 | 450 | 0.0000 |
+| Patron | 600 min | 1.0000 | 450 | 0.0001 |
+
+Largest throughput delta across all five: **0.0000**. Total demand is 19.9000 per
+game-minute and Power Cells 5.2500 per game-minute at *every* band — identical,
+not approximate, because a line is sized `capacity × interval × load` and the
+interval cancels out of `line / interval`. The invariant is a property of the
+formula rather than something a guard enforces, which means the way it breaks in
+future is somebody editing the formula.
+
+### The reserve floor, re-measured
+
+| Load | Population with floor | Without floor | Settled fill with floor |
+|---|---|---|---|
+| 1.0 | 450 | 450 | 1.000 |
+| 1.2 | 439 | 416 | 0.783 |
+| 2.0 | 340 | 272 | 0.556 |
+| 3.0 | **206** | 108 | 0.456 |
+| 4.0 | **101** | **0** | 0.420 |
+
+It costs deliveries to do it — fill at load 3.0 is 0.456 with the floor against
+0.750 without — and that is the trade.
+
+### Standing, measured
+
+- **Hysteresis works:** sixteen cycles of fill oscillating 0.85/0.55 either side
+  of the 0.75/0.65 threshold pair produce **zero** band changes, because the EMA
+  parks reliability at 0.67–0.73, inside the gap.
+- **A slope, not a switch:** four settled failures from Patron to Receivership;
+  four perfect cycles from Receivership back to Indifferent.
+- **Receivership has a floor:** 5,000 ticks on its 96-minute cadence leaves
+  population at 450 under a load-1.0 manifest and 101 under a load-4.0 one.
+- **And it is inert at load 1.0:** from the seeded start, Favourable after one
+  settlement and Patron after two, with no path down. See §4.2.
+
+### Commissions, measured
+
+Over 4,800 ticks and 19 offers at load 1.0, with contracts sized from storage
+headroom:
+
+| Strategy | Accepted | Met | Quota fill | Reliability | Band |
+|---|---|---|---|---|---|
+| Ignore everything | 0 | — | 1.0000 | 1.0000 | Patron |
+| Accept everything | 19 | 3 | 0.9663 | 0.9644 | Patron |
+| Accept only what the stores already cover | **1** | 1/1 | 1.0000 | 1.0000 | Patron |
+
+Accepting blindly costs −2.10 of direct Standing across those 19 offers. Playing
+properly, **one offer in nineteen is worth taking** — because at load 1.0 the
+colony has no spare flow and a contract can only be paid from a one-off buffer.
+The feature is correct and inert, for the same reason Standing is.
 
 ### What quota does *not* fix
 
 Quota moves the economy from saturated to flowing, but it cannot do it alone:
 
-- **Breadth beats size.** A quota naming one good unsticks one chain and leaves
-  stores at 97%. Naming all nine drops stores to 73% at the same load. A narrow
-  manifest is a narrow sink.
+- **Breadth beats size.** A manifest naming one good unsticks one chain and
+  leaves every other store saturated. The generator therefore names every good
+  the colony can spare — eight of nine for the seed network.
 - **The band is narrow.** Between "too small to matter" and "kills the colony"
-  there is roughly a 0.75–1.2 load window.
-- **A second sink is still wanted.** Construction consuming materials (Phase 5)
-  is what gives the player a way to *spend* surplus deliberately rather than only
-  having it taken. Quota is pressure; building is agency.
+  there is roughly a 0.75–1.2 load window, and fill ≈ `min(1, 1/load)` across it.
+- **A second sink is still wanted, and Phase 2 made the case concrete rather
+  than theoretical.** There is no load that gives both drained stores and spare
+  capacity, because spare capacity *is* stores filling up. Without somewhere
+  else for surplus to go, Standing pins at Patron and commissions go unaccepted.
+  Construction consuming materials (Phase 5) is what gives the player a way to
+  *spend* surplus deliberately rather than only having it taken. Quota is
+  pressure; building is agency.
