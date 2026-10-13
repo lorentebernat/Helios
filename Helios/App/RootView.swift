@@ -30,6 +30,14 @@ struct RootView: View {
                         .navigationDestination(for: ProductionListNav.self) { _ in
                             ProductionListView()
                         }
+                        // Registered here, once, for the only stack that can
+                        // push it — MainColonyView's quota panel is the only
+                        // route in. A second registration of the same payload
+                        // type would silently shadow this one, which is the
+                        // dead-tap gotcha. HELIOS.md §18 S14, §23.
+                        .navigationDestination(for: QuotaDetailNav.self) { _ in
+                            QuotaDetailView()
+                        }
                 }
             case 1:
                 // Registered here rather than inside ProductionListView, so
