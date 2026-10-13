@@ -2,7 +2,8 @@
 // Empire-scoped observable state. Colonies hold their own stock, population,
 // production and shipyard; the empire holds credits, ships, research — and the
 // Empire's business: the tick counter, Standing, the active quota, the one
-// announced after it, the ledger, and the archive of settled cycles.
+// announced after it, the optional contract on offer, both ledgers, and the
+// archive of settled cycles.
 
 import Observation
 import Foundation
@@ -26,8 +27,9 @@ final class GameState {
 
     /// **The clock the whole Empire runs on.** Monotonic, incremented once at
     /// the top of `tick()`, and persisted — an integer in the save file, not a
-    /// `Date`. Quota deadlines compare against this and nothing else, which is
-    /// what keeps `tick()` pure and clock-free. HELIOS.md §4.8, §14.
+    /// `Date`. Quota and commission deadlines compare against this and nothing
+    /// else, which is what keeps `tick()` pure and clock-free. HELIOS.md §4.8,
+    /// §14.
     var tickCount: Int
 
     /// What the Empire thinks of you: an EMA of delivered-over-demanded, banded
@@ -58,6 +60,20 @@ final class GameState {
     /// Monotonic quota id source, same shape and same reason as
     /// `nextShipSerial`: deterministic ids, no UUID inside `tick()`.
     var nextQuotaSerial: Int
+
+    /// The optional contract currently on offer, if any. One at a time — a
+    /// standing list of side quests would drown the quota, which is the thing
+    /// the game is actually about. HELIOS.md §4.3.
+    var commission: Commission?
+
+    /// Deliveries against `commission`. Same mechanism as the quota's, its own
+    /// instance.
+    var commissionLedger: QuotaLedger
+
+    var nextCommissionSerial: Int
+
+    /// What became of the last one, for the panel.
+    var lastCommissionOutcome: CommissionOutcome?
 
     // MARK: - Balance knobs (tuning, not state — deliberately not persisted)
 
@@ -95,6 +111,10 @@ final class GameState {
         ledger: QuotaLedger,
         settlementHistory: [QuotaSettlement],
         nextQuotaSerial: Int,
+        commission: Commission?,
+        commissionLedger: QuotaLedger,
+        nextCommissionSerial: Int,
+        lastCommissionOutcome: CommissionOutcome?,
         researchProjects: [ResearchProject],
         researchPoints: Int,
         researchRatePerMin: Int
@@ -111,6 +131,10 @@ final class GameState {
         self.ledger = ledger
         self.settlementHistory = settlementHistory
         self.nextQuotaSerial = nextQuotaSerial
+        self.commission = commission
+        self.commissionLedger = commissionLedger
+        self.nextCommissionSerial = nextCommissionSerial
+        self.lastCommissionOutcome = lastCommissionOutcome
         self.researchProjects = researchProjects
         self.researchPoints = researchPoints
         self.researchRatePerMin = researchRatePerMin
@@ -142,6 +166,10 @@ final class GameState {
             ledger: .empty(for: current),
             settlementHistory: [],
             nextQuotaSerial: 3,
+            commission: nil,
+            commissionLedger: QuotaLedger(quotaID: 0),
+            nextCommissionSerial: 1,
+            lastCommissionOutcome: nil,
             researchProjects: ResearchProject.samples,
             researchPoints: 1_840,
             researchRatePerMin: 12
@@ -168,6 +196,10 @@ final class GameState {
             ledger: ledger,
             settlementHistory: settlementHistory,
             nextQuotaSerial: nextQuotaSerial,
+            commission: commission,
+            commissionLedger: commissionLedger,
+            nextCommissionSerial: nextCommissionSerial,
+            lastCommissionOutcome: lastCommissionOutcome,
             researchProjects: researchProjects,
             researchPoints: researchPoints,
             researchRatePerMin: researchRatePerMin,
@@ -190,6 +222,10 @@ final class GameState {
             ledger: save.ledger,
             settlementHistory: save.settlementHistory,
             nextQuotaSerial: save.nextQuotaSerial,
+            commission: save.commission,
+            commissionLedger: save.commissionLedger,
+            nextCommissionSerial: save.nextCommissionSerial,
+            lastCommissionOutcome: save.lastCommissionOutcome,
             researchProjects: save.researchProjects,
             researchPoints: save.researchPoints,
             researchRatePerMin: save.researchRatePerMin
@@ -259,26 +295,32 @@ final class GameState {
     /// One pure simulation step — reads no clock and no randomness.
     ///
     /// Order: count the tick, run the colonies (population, industry, then the
-    /// Empire's collection paced against `tickCount`), advance the fleet, then
-    /// settle if the deadline has arrived. Settling *after* the colonies is what
-    /// lets the final instalment land at `scheduledFraction == 1.0` and be
+    /// Empire's collection — quota first, commission out of the residual),
+    /// advance the fleet, resolve a commission whose deadline has arrived, then
+    /// settle the quota if its deadline has. Settling *after* the colonies is
+    /// what lets the final instalment land at `scheduledFraction == 1.0` and be
     /// counted, rather than being cut off by a cycle that already rolled over.
     func tick() {
         tickCount += 1
 
-        // A ledger carrying another quota's id is stale — only reachable from a
-        // hand-edited save or a test that swapped the quota out.
+        // A ledger carrying another subject's id is stale — only reachable
+        // from a hand-edited save or a test that swapped the demand out.
         if let quota = currentQuota, ledger.quotaID != quota.id {
             ledger.reset(for: quota)
+        }
+        if let contract = commission, commissionLedger.quotaID != contract.id {
+            commissionLedger = .empty(forCommission: contract)
         }
 
         for i in colonies.indices {
             let finished = colonies[i].applyTick(
                 economyRate: Self.economyRate,
                 fleetRate: Self.fleetRate,
+                atTick: tickCount,
                 quota: currentQuota,
-                ledger: &ledger,
-                atTick: tickCount
+                quotaLedger: &ledger,
+                commission: commission,
+                commissionLedger: &commissionLedger
             )
             let colonyID = colonies[i].id
             for order in finished {
@@ -301,12 +343,44 @@ final class GameState {
             ships[i].applyTick(minutesPerTick: Self.fleetRate)
         }
 
+        resolveCommissionIfDue()
         settleQuotaIfDue()
+    }
+
+    /// Closes an optional contract at its deadline.
+    ///
+    /// Three outcomes, and the asymmetry between them is the whole mechanic.
+    /// **Ignored costs nothing at all** — not a smaller reward, nothing; that
+    /// is what makes "ignoring is always safe" true rather than nearly true.
+    /// **Delivered** pays credits and repairs Standing directly.
+    /// **Accepted and failed** costs more Standing than never accepting, which
+    /// is what stops accepting everything from being free.
+    ///
+    /// Pass or fail, never graded: 99% delivered pays exactly what 0% pays. A
+    /// quota is graded because you had no say in it; a commission is a bet you
+    /// took.
+    private func resolveCommissionIfDue() {
+        guard let contract = commission, contract.isDue(atTick: tickCount) else { return }
+
+        if !contract.accepted {
+            lastCommissionOutcome = .ignored
+        } else if contract.isMet(by: commissionLedger) {
+            credits += contract.creditReward
+            standing.adjust(by: contract.standingReward)
+            lastCommissionOutcome = .delivered
+        } else {
+            standing.adjust(by: -contract.standingPenalty)
+            lastCommissionOutcome = .failed
+        }
+
+        commission = nil
+        commissionLedger = QuotaLedger(quotaID: 0)
     }
 
     /// Closes the cycle when `tickCount` reaches the deadline: compute the fill,
     /// pay for the shipment, archive the result, move Standing, promote the
-    /// announced manifest, announce the one after it, clear the ledger.
+    /// announced manifest, announce the one after it, clear the ledger, and
+    /// post a fresh contract if none is outstanding.
     ///
     /// Settlement is not bookkeeping — it is what keeps the Empire a
     /// **permanent** sink. A completed manifest has no collectable allowance
@@ -360,6 +434,28 @@ final class GameState {
         currentQuota = promoted
         ledger.reset(for: promoted)
         nextQuota = generateQuota(issuedAtTick: promoted.dueAtTick)
+
+        offerCommissionIfNoneOutstanding()
+    }
+
+    /// One contract at a time, posted when the previous one has closed. Offered
+    /// at settlement rather than at an arbitrary tick so it arrives alongside
+    /// the new manifest — the player sees what is compulsory and what is
+    /// optional in the same breath.
+    private func offerCommissionIfNoneOutstanding() {
+        guard commission == nil, let quota = currentQuota else { return }
+        guard let contract = CommissionGenerator.generate(
+            id: nextCommissionSerial,
+            colony: colonies[activeIndex],
+            against: quota,
+            offeredAtTick: tickCount,
+            economyRate: Self.economyRate,
+            stipendPerGameMinute: Self.stipendPerGameMinute
+        ) else { return }
+
+        nextCommissionSerial += 1
+        commission = contract
+        commissionLedger = .empty(forCommission: contract)
     }
 
     /// Pays for one settled shipment, and returns what was paid.
@@ -447,7 +543,7 @@ final class GameState {
         return id
     }
 
-    // MARK: - Quota readouts
+    // MARK: - Readouts
 
     /// Overall fill of the active quota, normalised per line.
     var quotaFill: Double {
@@ -461,7 +557,29 @@ final class GameState {
 
     var lastSettlement: QuotaSettlement? { settlementHistory.last }
 
+    /// Progress on the active contract, for its card's bar. Not what decides
+    /// payment — a commission is pass or fail.
+    var commissionProgress: Double {
+        commission?.fill(from: commissionLedger) ?? 0
+    }
+
+    /// Whether the active contract would pay if its deadline were now.
+    var commissionWouldBeMet: Bool {
+        guard let contract = commission else { return false }
+        return contract.isMet(by: commissionLedger)
+    }
+
     // MARK: - Actions
+
+    /// Opt in. Irreversible by design — the commitment is the whole point of
+    /// the bet, and a contract you can back out of at the deadline is just a
+    /// reward with extra steps.
+    @discardableResult
+    func acceptCommission() -> Bool {
+        guard let contract = commission, contract.accepted == false else { return false }
+        commission?.accepted = true
+        return true
+    }
 
     /// Re-routing an in-transit ship is allowed.
     func dispatch(shipID: Ship.ID, to destination: Destination) {

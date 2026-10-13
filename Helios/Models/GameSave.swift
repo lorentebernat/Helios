@@ -5,9 +5,15 @@
 // reaches everyone with an existing save instead of being frozen out of it.
 // HELIOS.md §18 S14, §21.
 //
-// VERSION 5 (Phase 2 Step 6) adds `stipend` to each archived settlement, so
-// the record says what was actually paid rather than what today's rates would
-// pay. VERSION 4 added `standing`.
+// VERSION 6 (Phase 2 Step 7) adds the optional contract: `commission`, its
+// ledger, its id source and the last outcome. VERSION 5 added each settlement's
+// `stipend`; VERSION 4 added `standing`.
+//
+// The balance knobs on `GameState` — `quotaLoad`,
+// `quotaCadenceOverrideMinutes` — are deliberately absent: they are tuning, not
+// state, and persisting them would freeze a player on whatever values were live
+// when they last saved, which is the same trap the blueprint-overlay decision
+// exists to avoid.
 //
 // No migration between versions: `SaveStore` treats an unsupported version
 // exactly like a corrupt file, quarantines it, and starts a fresh game. That
@@ -30,13 +36,17 @@ struct GameSave {
     var ledger: QuotaLedger
     var settlementHistory: [QuotaSettlement]
     var nextQuotaSerial: Int
+    var commission: Commission?
+    var commissionLedger: QuotaLedger
+    var nextCommissionSerial: Int
+    var lastCommissionOutcome: CommissionOutcome?
     var researchProjects: [ResearchProject]
     var researchPoints: Int
     var researchRatePerMin: Int
     var lastTickAt: Date
 
     init(
-        version: Int = 5,
+        version: Int = 6,
         colonies: [Colony],
         activeColonyID: Colony.ID,
         credits: Int,
@@ -49,6 +59,10 @@ struct GameSave {
         ledger: QuotaLedger,
         settlementHistory: [QuotaSettlement],
         nextQuotaSerial: Int,
+        commission: Commission?,
+        commissionLedger: QuotaLedger,
+        nextCommissionSerial: Int,
+        lastCommissionOutcome: CommissionOutcome?,
         researchProjects: [ResearchProject],
         researchPoints: Int,
         researchRatePerMin: Int,
@@ -67,6 +81,10 @@ struct GameSave {
         self.ledger = ledger
         self.settlementHistory = settlementHistory
         self.nextQuotaSerial = nextQuotaSerial
+        self.commission = commission
+        self.commissionLedger = commissionLedger
+        self.nextCommissionSerial = nextCommissionSerial
+        self.lastCommissionOutcome = lastCommissionOutcome
         self.researchProjects = researchProjects
         self.researchPoints = researchPoints
         self.researchRatePerMin = researchRatePerMin
@@ -81,6 +99,7 @@ extension GameSave: Codable {
         case version, colonies, activeColonyID, credits, ships, nextShipSerial
         case tickCount, standing
         case currentQuota, nextQuota, ledger, settlementHistory, nextQuotaSerial
+        case commission, commissionLedger, nextCommissionSerial, lastCommissionOutcome
         case researchProjects, researchPoints, researchRatePerMin, lastTickAt
     }
 
@@ -109,6 +128,10 @@ extension GameSave: Codable {
         ledger = try container.decode(QuotaLedger.self, forKey: .ledger)
         settlementHistory = try container.decode([QuotaSettlement].self, forKey: .settlementHistory)
         nextQuotaSerial = try container.decode(Int.self, forKey: .nextQuotaSerial)
+        commission = try container.decodeIfPresent(Commission.self, forKey: .commission)
+        commissionLedger = try container.decode(QuotaLedger.self, forKey: .commissionLedger)
+        nextCommissionSerial = try container.decode(Int.self, forKey: .nextCommissionSerial)
+        lastCommissionOutcome = try container.decodeIfPresent(CommissionOutcome.self, forKey: .lastCommissionOutcome)
         let slots = try container.decode([ResearchSlot].self, forKey: .researchProjects)
         researchProjects = slots.compactMap(\.project)
         researchPoints = try container.decode(Int.self, forKey: .researchPoints)
@@ -131,6 +154,10 @@ extension GameSave: Codable {
         try container.encode(ledger, forKey: .ledger)
         try container.encode(settlementHistory, forKey: .settlementHistory)
         try container.encode(nextQuotaSerial, forKey: .nextQuotaSerial)
+        try container.encodeIfPresent(commission, forKey: .commission)
+        try container.encode(commissionLedger, forKey: .commissionLedger)
+        try container.encode(nextCommissionSerial, forKey: .nextCommissionSerial)
+        try container.encodeIfPresent(lastCommissionOutcome, forKey: .lastCommissionOutcome)
         try container.encode(researchProjects, forKey: .researchProjects)
         try container.encode(researchPoints, forKey: .researchPoints)
         try container.encode(researchRatePerMin, forKey: .researchRatePerMin)

@@ -142,6 +142,23 @@ struct Standing: Codable, Hashable {
         band = Self.band(after: band, reliability: reliability)
     }
 
+    /// A direct adjustment from something other than a quota — a commission
+    /// delivered or failed.
+    ///
+    /// Not smoothed, unlike `settle(fill:)`. A quota fill is an *observation*
+    /// of how you have been running, so it belongs in an average; a commission
+    /// is a discrete act you chose, so it moves the record directly. That is
+    /// what makes commissions the reconciliation path out of a bad band rather
+    /// than one more data point in a slow-moving mean. HELIOS.md §4.3.
+    ///
+    /// The band still moves at most one step, so a single commission cannot
+    /// vault you two bands however large the bump.
+    mutating func adjust(by delta: Double) {
+        guard delta != 0 else { return }
+        reliability = min(1, max(0, reliability + delta))
+        band = Self.band(after: band, reliability: reliability)
+    }
+
     /// **Bands are sticky, and in two separate ways.**
     ///
     /// The rise and fall thresholds are deliberately different — 0.55/0.45,

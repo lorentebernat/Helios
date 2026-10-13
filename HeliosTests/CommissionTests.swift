@@ -1,0 +1,351 @@
+//
+//  CommissionTests.swift
+//  Helios
+//
+//  Created by Bernat on 13/10/2026.
+//
+
+
+//
+//  CommissionTests.swift
+//  HeliosTests
+//
+//  Phase 2 Step 7.
+//
+
+// The three-way asymmetry that makes an opt-in contract work: ignoring costs
+// nothing, delivering repairs Standing, accepting-and-failing costs more than
+// never accepting.
+
+import Testing
+import Foundation
+@testable import Helios
+
+@Suite("Commissions")
+struct CommissionTests {
+
+    private func run(_ state: GameState, ticks: Int) {
+        for _ in 0..<ticks { state.tick() }
+    }
+
+    /// Runs until a contract is on offer, at a fixed cadence so the window is
+    /// predictable.
+    private func withCommissionOffered() -> GameState {
+        let state = GameState.seeded()
+        state.quotaCadenceOverrideMinutes = QuotaGenerator.baseIntervalMinutes
+        guard let quota = state.currentQuota else { return state }
+        run(state, ticks: quota.intervalTicks)   // the first settlement posts one
+        return state
+    }
+
+    /// Fills every store to capacity, so a contract is comfortably meetable and
+    /// the test measures the mechanism rather than the balance.
+    private func stockUp(_ state: GameState) {
+        for resource in Resource.all {
+            state.colonies[0].stock.deposit(resource.id, resource.capacity)
+        }
+    }
+
+    /// Empties everything the Empire could draw on, so an accepted contract is
+    /// certain to fail.
+    private func stripStores(_ state: GameState) {
+        for resource in Resource.all {
+            state.colonies[0].stock.drain(resource.id, resource.capacity)
+        }
+    }
+
+    // MARK: - It exists, and one at a time
+
+    @Test func aCommissionIsPostedAtSettlement() {
+        let state = withCommissionOffered()
+        guard let contract = state.commission else {
+            Issue.record("no commission was posted at the first settlement")
+            return
+        }
+        #expect(contract.accepted == false, "a contract must arrive un-accepted")
+        #expect(contract.lineCount <= CommissionGenerator.goodsPerCommission)
+        #expect(contract.lineCount >= 1)
+        #expect(contract.deadlineTick > state.tickCount)
+        #expect(contract.creditReward > 0)
+    }
+
+    /// Narrow where the quota is broad. That contrast is most of what makes the
+    /// two feel like different demands rather than two sizes of the same one.
+    @Test func aCommissionIsNarrowerThanTheQuota() {
+        let state = withCommissionOffered()
+        guard let contract = state.commission, let quota = state.currentQuota else { return }
+        #expect(contract.lineCount < quota.lineCount,
+                "contract named \(contract.lineCount) goods against a manifest of \(quota.lineCount)")
+        #expect(contract.windowMinutes < quota.intervalMinutes,
+                "a rush order should be due sooner than the quota it sits alongside")
+    }
+
+    @Test func onlyOneCommissionIsOfferedAtATime() {
+        let state = withCommissionOffered()
+        guard let first = state.commission, let quota = state.currentQuota else { return }
+
+        // Several more settlements pass while the first contract is still open.
+        run(state, ticks: quota.intervalTicks)
+        #expect(state.commission?.id == first.id || state.commission == nil,
+                "a second contract was posted while the first was outstanding")
+    }
+
+    @Test func commissionGenerationIsDeterministic() {
+        let a = withCommissionOffered()
+        let b = withCommissionOffered()
+        #expect(a.commission == b.commission, "two identical games wrote different contracts")
+    }
+
+    // MARK: - Ignoring is always safe
+
+    @Test func ignoringACommissionCostsNothing() {
+        let state = withCommissionOffered()
+        guard let contract = state.commission else { return }
+
+        let standingBefore = state.standing
+        let creditsBefore = state.credits
+
+        // Never accepted. Run past the deadline without touching it.
+        while state.tickCount < contract.deadlineTick { state.tick() }
+
+        #expect(state.lastCommissionOutcome == .ignored)
+        #expect(state.standing.reliability == standingBefore.reliability,
+                "ignoring moved reliability from \(standingBefore.reliability) to \(state.standing.reliability)")
+        #expect(state.standing.band == standingBefore.band)
+        #expect(state.credits == creditsBefore, "ignoring changed credits")
+    }
+
+    // MARK: - Delivering pays
+
+    @Test func deliveringACommissionPaysCreditsAndStanding() {
+        let state = withCommissionOffered()
+        state.standing = Standing(reliability: 0.60, band: .scrutinised)
+        stockUp(state)
+
+        guard let contract = state.commission else { return }
+        #expect(state.acceptCommission())
+
+        let creditsBefore = state.credits
+        while state.tickCount < contract.deadlineTick { state.tick() }
+
+        #expect(state.lastCommissionOutcome == .delivered,
+                "a fully stocked colony should have met it, got \(String(describing: state.lastCommissionOutcome))")
+        #expect(state.credits >= creditsBefore + contract.creditReward,
+                "expected at least \(contract.creditReward) credits for the contract")
+        #expect(state.standing.reliability > 0.60,
+                "delivering should repair Standing, reliability is \(state.standing.reliability)")
+    }
+
+    /// The reconciliation path: the way out of a bad band is to volunteer for
+    /// something and deliver it. HELIOS.md §4.3.
+    @Test func commissionsCanLiftYouOutOfScrutinised() {
+        let state = withCommissionOffered()
+        state.standing = Standing(reliability: 0.70, band: .scrutinised)
+        stockUp(state)
+
+        guard let contract = state.commission else { return }
+        #expect(state.acceptCommission())
+        while state.tickCount < contract.deadlineTick { state.tick() }
+
+        #expect(state.lastCommissionOutcome == .delivered)
+        #expect(state.standing.band == .indifferent,
+                "a delivered contract from 0.70 should clear the 0.75 rise threshold, band is \(state.standing.band.displayName)")
+    }
+
+    // MARK: - Accepting and failing costs more than never accepting
+
+    /// **The asymmetry the whole mechanic rests on.** Two identical games, one
+    /// accepts a contract it cannot meet and one ignores it.
+    @Test func failingAnAcceptedCommissionCostsMoreThanIgnoringIt() {
+        let bold = withCommissionOffered()
+        let cautious = withCommissionOffered()
+        #expect(bold.commission == cautious.commission, "precondition: the same contract")
+
+        guard let contract = bold.commission else { return }
+
+        stripStores(bold)
+        stripStores(cautious)
+        #expect(bold.acceptCommission())
+
+        let startingReliability = bold.standing.reliability
+        while bold.tickCount < contract.deadlineTick { bold.tick() }
+        while cautious.tickCount < contract.deadlineTick { cautious.tick() }
+
+        #expect(bold.lastCommissionOutcome == .failed)
+        #expect(cautious.lastCommissionOutcome == .ignored)
+        #expect(bold.standing.reliability < cautious.standing.reliability,
+                "failing (\(bold.standing.reliability)) should cost more than ignoring (\(cautious.standing.reliability))")
+        #expect(bold.standing.reliability < startingReliability)
+    }
+
+    @Test func failingCostsMoreThanDeliveringPays() {
+        #expect(CommissionGenerator.standingPenalty > CommissionGenerator.standingReward,
+                "if the reward matched the penalty, accepting everything would be free and ignoring would be a dominated choice")
+    }
+
+    // MARK: - Pass or fail, not graded
+
+    @Test func aNearMissPaysNothing() {
+        let state = withCommissionOffered()
+        stockUp(state)
+        guard var contract = state.commission else { return }
+
+        // Nudge one line just out of reach: the colony can supply everything
+        // except the last unit of one good.
+        guard let shortGood = contract.sortedLines.first?.good else { return }
+        state.commission?.accepted = true
+        contract = state.commission!
+
+        // Drain that good to just under what the contract asks for.
+        let owed = contract.amount(of: shortGood)
+        let floor = QuotaLedger.reservedGoods.contains(shortGood)
+            ? state.colonies[0].stock.capacity(of: shortGood) * QuotaLedger.reserveFraction
+            : 0
+        let keep = floor + owed - 1
+        let held = state.colonies[0].stock.amount(of: shortGood)
+        if held > keep { state.colonies[0].stock.drain(shortGood, held - keep) }
+
+        let creditsBefore = state.credits
+        let reliabilityBefore = state.standing.reliability
+        while state.tickCount < contract.deadlineTick { state.tick() }
+
+        #expect(state.lastCommissionOutcome == .failed,
+                "a contract one unit short is failed, not partly paid")
+        #expect(state.credits == creditsBefore, "a near miss paid credits")
+        #expect(state.standing.reliability < reliabilityBefore)
+    }
+
+    // MARK: - It never sabotages the quota, and never touches the reserve
+
+    /// The mandatory demand collects before the optional one, every tick.
+    @Test func theQuotaCollectsBeforeTheCommission() {
+        let withContract = GameState.seeded()
+        let without = GameState.seeded()
+        withContract.quotaCadenceOverrideMinutes = QuotaGenerator.baseIntervalMinutes
+        without.quotaCadenceOverrideMinutes = QuotaGenerator.baseIntervalMinutes
+
+        guard let quota = withContract.currentQuota else { return }
+        run(withContract, ticks: quota.intervalTicks)
+        run(without, ticks: quota.intervalTicks)
+        withContract.acceptCommission()
+
+        run(withContract, ticks: quota.intervalTicks * 3)
+        run(without, ticks: quota.intervalTicks * 3)
+
+        let contractFills = withContract.settlementHistory.map(\.fill)
+        let plainFills = without.settlementHistory.map(\.fill)
+        for (i, fill) in contractFills.enumerated() where i < plainFills.count {
+            #expect(fill <= plainFills[i] + 1e-9,
+                    "cycle \(i): the quota filled higher with a commission running, which is impossible if it collects first")
+        }
+    }
+
+    @Test func commissionsNeverBreachTheReserveFloor() {
+        let state = withCommissionOffered()
+        stockUp(state)
+        state.acceptCommission()
+        guard let contract = state.commission else { return }
+
+        var previous = [Resource.ID: Double]()
+        while state.tickCount < contract.deadlineTick {
+            state.tick()
+            for good in QuotaLedger.reservedGoods {
+                let stock = state.colonies[0].stock
+                let amount = stock.amount(of: good)
+                let floor = stock.capacity(of: good) * QuotaLedger.reserveFraction
+                let now = state.commissionLedger.amountDelivered(of: good)
+                if now > (previous[good] ?? 0) + 1e-9 {
+                    #expect(amount >= floor - 1e-6,
+                            "a commission took \(good) and left \(amount), below its floor of \(floor)")
+                }
+                previous[good] = now
+            }
+        }
+    }
+
+    /// A contract can never ask for something the reserve floor forbids handing
+    /// over, so a stocked colony is never asked the impossible.
+    @Test func contractsAreSizedWithinTheDrawableHeadroom() {
+        let state = withCommissionOffered()
+        guard let contract = state.commission else { return }
+        var full = ColonyStock()
+        for resource in Resource.all { full.deposit(resource.id, resource.capacity) }
+
+        for line in contract.sortedLines {
+            #expect(line.amount <= QuotaLedger.drawable(line.good, from: full) + 1e-6,
+                    "\(line.good): asks \(line.amount), only \(QuotaLedger.drawable(line.good, from: full)) is ever drawable")
+        }
+    }
+
+    // MARK: - Accepting is a commitment
+
+    @Test func acceptingIsIrreversibleAndIdempotent() {
+        let state = withCommissionOffered()
+        #expect(state.acceptCommission(), "the first acceptance should take")
+        #expect(state.acceptCommission() == false, "accepting twice should be a no-op")
+        #expect(state.commission?.accepted == true)
+    }
+
+    @Test func acceptingWithNothingOnOfferDoesNothing() {
+        let state = GameState.seeded()
+        #expect(state.commission == nil, "precondition: nothing on offer yet")
+        #expect(state.acceptCommission() == false)
+    }
+
+    // MARK: - Persistence and determinism
+
+    @Test func commissionStateSurvivesARoundTrip() throws {
+        let original = withCommissionOffered()
+        original.acceptCommission()
+        run(original, ticks: 20)
+
+        let data = try JSONEncoder().encode(original.snapshot)
+        let restored = GameState(save: try JSONDecoder().decode(GameSave.self, from: data))
+
+        #expect(restored.commission == original.commission, "the contract did not survive")
+        #expect(restored.commissionLedger == original.commissionLedger, "its ledger did not survive")
+        #expect(restored.nextCommissionSerial == original.nextCommissionSerial)
+        #expect(restored.lastCommissionOutcome == original.lastCommissionOutcome)
+
+        guard let deadline = original.commission?.deadlineTick else { return }
+        while original.tickCount < deadline { original.tick() }
+        while restored.tickCount < deadline { restored.tick() }
+        #expect(original.lastCommissionOutcome == restored.lastCommissionOutcome,
+                "the restored game resolved the contract differently")
+        #expect(original.credits == restored.credits)
+        #expect(original.standing == restored.standing)
+    }
+
+    @Test func commissionsAreDeterministic() {
+        let a = GameState.seeded()
+        let b = GameState.seeded()
+        for _ in 0..<1_200 {
+            a.tick()
+            b.tick()
+            if a.commission != nil { a.acceptCommission() }
+            if b.commission != nil { b.acceptCommission() }
+        }
+        #expect(a.commission == b.commission, "contracts diverged")
+        #expect(a.commissionLedger == b.commissionLedger, "contract ledgers diverged")
+        #expect(a.standing == b.standing, "standing diverged")
+        #expect(a.credits == b.credits, "credits diverged")
+        #expect(a.nextCommissionSerial == b.nextCommissionSerial)
+    }
+
+    // MARK: - No new currency
+
+    /// Commissions pay Standing and credits. Favour waits for Phase 5, where
+    /// Dispensations give it a sink — a currency with a source and no sink is
+    /// exactly how credits became S3.
+    @Test func commissionsPayNoFavour() {
+        let state = withCommissionOffered()
+        guard let contract = state.commission else { return }
+        #expect(contract.creditReward > 0)
+        #expect(contract.standingReward > 0)
+        // If a Favour field ever appears on Commission, this test should be the
+        // thing that makes someone stop and check §4.4 first.
+        #expect(Mirror(reflecting: contract).children.allSatisfy {
+            ($0.label ?? "").lowercased().contains("favour") == false
+        }, "Favour arrived early — see HELIOS.md §4.4 and §18 S3")
+    }
+}

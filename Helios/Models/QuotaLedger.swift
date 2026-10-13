@@ -1,5 +1,6 @@
 // QuotaLedger.swift
-// What has actually left the docks against the current quota.
+// What has actually left the docks against a demand — a quota, or an accepted
+// commission. Same mechanism, one instance each.
 //
 // A LEDGER, NOT A SNAPSHOT — the single most important mechanical decision in
 // this phase. Deliveries accumulate across the interval; the Empire never
@@ -23,16 +24,18 @@
 // earlier version carried its own `elapsedMinutes` — a second measure of the
 // same thing, which is the shape of §18 S7.
 //
-// `deliver(_:_:)` is the ONE way goods enter this ledger. Phase 3 makes cargo
-// real and delivery becomes "a freighter arrived": it swaps the caller and
-// touches nothing else — not settlement, not Standing, not the UI.
+// `deliver(_:_:)` is the ONE way goods enter a ledger. Phase 3 makes cargo real
+// and delivery becomes "a freighter arrived": it swaps the caller and touches
+// nothing else — not settlement, not Standing, not the UI.
 
 import Foundation
 
 struct QuotaLedger: Codable, Hashable {
 
-    /// Which quota these deliveries belong to. A ledger whose id doesn't match
-    /// the active quota is stale and gets reset, never reused.
+    /// Which demand these deliveries belong to. Holds a `Quota.id` on the quota
+    /// ledger and a `Commission.id` on a commission's; a ledger whose id does
+    /// not match what is being collected on is stale and gets reset, never
+    /// reused.
     var quotaID: Int
 
     /// Cumulative delivered amount per good. Monotonic within a cycle.
@@ -47,10 +50,16 @@ struct QuotaLedger: Codable, Hashable {
         QuotaLedger(quotaID: quota?.id ?? 0)
     }
 
+    /// A commission's ledger. The mechanism is identical; only the thing being
+    /// delivered against differs.
+    static func empty(forCommission commission: Commission?) -> QuotaLedger {
+        QuotaLedger(quotaID: commission?.id ?? 0)
+    }
+
     // MARK: - The delivery seam
 
     /// The narrow entry point Phase 3 is built around. Everything that puts
-    /// goods against a quota goes through here.
+    /// goods against a demand goes through here.
     mutating func deliver(_ good: Resource.ID, _ amount: Double) {
         guard amount > 0 else { return }
         delivered[good, default: 0] += amount
@@ -76,9 +85,16 @@ struct QuotaLedger: Codable, Hashable {
         return max(0, ceiling - amountDelivered(of: good))
     }
 
-    /// What is still owed on this line, regardless of schedule.
+    /// What is still owed on a line of any size. A commission is delivered as
+    /// fast as the colony can manage rather than paced across its window — it
+    /// is a rush order — so it needs the amount outstanding and nothing else.
+    func outstanding(of good: Resource.ID, owed: Double) -> Double {
+        max(0, owed - amountDelivered(of: good))
+    }
+
+    /// What is still owed on a quota line, regardless of schedule.
     func outstanding(of good: Resource.ID, against quota: Quota) -> Double {
-        max(0, quota.amount(of: good) - amountDelivered(of: good))
+        outstanding(of: good, owed: quota.amount(of: good))
     }
 
     // MARK: - The reserve floor: colonists eat first
@@ -109,7 +125,8 @@ struct QuotaLedger: Codable, Hashable {
     )
 
     /// How much of `good` the dock may take from `stock` without crossing the
-    /// reserve floor.
+    /// reserve floor. Applies to a commission exactly as it does to a quota —
+    /// an optional contract is not a licence to take the colonists' food.
     static func drawable(_ good: Resource.ID, from stock: ColonyStock) -> Double {
         guard reservedGoods.contains(good) else { return stock.amount(of: good) }
         let floor = stock.capacity(of: good) * reserveFraction

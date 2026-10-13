@@ -42,23 +42,27 @@ struct Colony: Identifiable {
     /// empire-scoped, so the colony can't create them itself.
     ///
     /// Order is deliberate and load-bearing: **colonists eat, then industry
-    /// runs, then the Empire collects.** Population going first is what makes a
-    /// shortage surface as blocked production — diagnosable — rather than as
-    /// silent population decline (HELIOS.md §21). The Empire going last is what
-    /// makes it the residual claimant on everything, which together with the
-    /// reserve floor in `QuotaLedger` is why quota can be a real sink without
-    /// being able to starve the colony.
+    /// runs, then the Empire collects — the quota first and a commission only
+    /// out of what is left.** Population going first is what makes a shortage
+    /// surface as blocked production rather than as silent population decline
+    /// (HELIOS.md §21). The Empire going last is what makes it the residual
+    /// claimant, which together with the reserve floor is why quota can be a
+    /// real sink without starving the colony. And the mandatory demand going
+    /// before the optional one is what stops an opt-in contract from ever
+    /// sabotaging the quota it was meant to supplement.
     ///
-    /// The quota, its ledger and the tick are threaded in rather than read from
-    /// anywhere global: Swift Testing runs tests in parallel, and this keeps
-    /// every test driving its own state.
+    /// Both ledgers and the tick are threaded in rather than read from anywhere
+    /// global: Swift Testing runs tests in parallel, and this keeps every test
+    /// driving its own state.
     @discardableResult
     mutating func applyTick(
         economyRate: Double,
         fleetRate: Double,
+        atTick tick: Int,
         quota: Quota?,
-        ledger: inout QuotaLedger,
-        atTick tick: Int
+        quotaLedger: inout QuotaLedger,
+        commission: Commission?,
+        commissionLedger: inout QuotaLedger
     ) -> [ShipBuildOrder] {
         // Colonists eat before industry runs.
         population.applyTick(stock: &stock, minutesPerTick: economyRate)
@@ -73,10 +77,13 @@ struct Colony: Identifiable {
         gridFactor = grid.factor
 
         // The Empire collects last, and only against a ledger that belongs to
-        // the quota being collected on. A mismatch means the ledger is stale;
+        // what is being collected on. A mismatch means the ledger is stale;
         // resetting it is `GameState`'s job, not a colony's.
-        if let quota, ledger.quotaID == quota.id {
-            collectQuota(quota, into: &ledger, atTick: tick)
+        if let quota, quotaLedger.quotaID == quota.id {
+            collectQuota(quota, into: &quotaLedger, atTick: tick)
+        }
+        if let commission, commission.accepted, commissionLedger.quotaID == commission.id {
+            collectCommission(commission, into: &commissionLedger)
         }
 
         return advanceShipyard(fleetRate: fleetRate)
@@ -86,13 +93,16 @@ struct Colony: Identifiable {
     /// that only care about production and population.
     @discardableResult
     mutating func applyTick(economyRate: Double, fleetRate: Double) -> [ShipBuildOrder] {
-        var noLedger = QuotaLedger(quotaID: 0)
+        var noQuota = QuotaLedger(quotaID: 0)
+        var noCommission = QuotaLedger(quotaID: 0)
         return applyTick(
             economyRate: economyRate,
             fleetRate: fleetRate,
+            atTick: 0,
             quota: nil,
-            ledger: &noLedger,
-            atTick: 0
+            quotaLedger: &noQuota,
+            commission: nil,
+            commissionLedger: &noCommission
         )
     }
 
@@ -107,6 +117,23 @@ struct Colony: Identifiable {
     private mutating func collectQuota(_ quota: Quota, into ledger: inout QuotaLedger, atTick tick: Int) {
         for line in quota.sortedLines {
             let wanted = ledger.collectableNow(of: line.good, against: quota, atTick: tick)
+            guard wanted > 0 else { continue }
+
+            let moved = min(wanted, QuotaLedger.drawable(line.good, from: stock))
+            guard moved > 0 else { continue }
+
+            stock.drain(line.good, moved)
+            ledger.deliver(line.good, moved)
+        }
+    }
+
+    /// Same mechanism, no schedule: a commission is a rush order, so it takes
+    /// whatever the stores can spare as fast as they can spare it. The reserve
+    /// floor still binds — an optional contract is not a licence to take the
+    /// colonists' food.
+    private mutating func collectCommission(_ commission: Commission, into ledger: inout QuotaLedger) {
+        for line in commission.sortedLines {
+            let wanted = ledger.outstanding(of: line.good, owed: line.amount)
             guard wanted > 0 else { continue }
 
             let moved = min(wanted, QuotaLedger.drawable(line.good, from: stock))
