@@ -312,6 +312,10 @@ final class GameState {
             commissionLedger = .empty(forCommission: contract)
         }
 
+        // TODO Phase 7: one ledger pair is threaded through every colony while
+        // the demand is sized from the active colony alone, so with two
+        // colonies whichever iterates first consumes the allocation.
+        // HELIOS.md §18 S17.
         for i in colonies.indices {
             let finished = colonies[i].applyTick(
                 economyRate: Self.economyRate,
@@ -424,6 +428,11 @@ final class GameState {
         // to re-stamp. The fallback only fires for a state whose invariant was
         // broken from outside — a hand-edited save, or a test that replaced
         // `currentQuota` without announcing a successor.
+        //
+        // TODO Phase 4: this equality assumes tickCount advances by exactly one
+        // between checks. Offline catch-up that skips ticks would fail it and
+        // silently replace the announced manifest with a fresh one, breaking
+        // the full-interval-to-retool promise. HELIOS.md §18 S16.
         let promoted: Quota
         if let announced = nextQuota, announced.issuedAtTick == tickCount {
             promoted = announced
@@ -442,6 +451,10 @@ final class GameState {
     /// at settlement rather than at an arbitrary tick so it arrives alongside
     /// the new manifest — the player sees what is compulsory and what is
     /// optional in the same breath.
+    ///
+    /// TODO Phase 7: sized from the *active* colony, so with several colonies
+    /// the player could change the next contract by switching colonies in the
+    /// UI. HELIOS.md §18 S17.
     private func offerCommissionIfNoneOutstanding() {
         guard commission == nil, let quota = currentQuota else { return }
         guard let contract = CommissionGenerator.generate(
@@ -514,7 +527,7 @@ final class GameState {
     ///
     /// TODO Phase 7: "the sector" is one colony today. Multi-colony assessment
     /// should sum installed capacity across colonies, since Standing and quota
-    /// are sector-scoped in the fiction (HELIOS.md §4.1).
+    /// are sector-scoped in the fiction (HELIOS.md §4.1, §18 S17).
     private func generateQuota(issuedAtTick: Int) -> Quota {
         QuotaGenerator.generate(
             id: mintQuotaID(),
