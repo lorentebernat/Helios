@@ -84,10 +84,20 @@ struct CommissionTests {
         let state = withCommissionOffered()
         guard let first = state.commission, let quota = state.currentQuota else { return }
 
-        // Several more settlements pass while the first contract is still open.
-        run(state, ticks: quota.intervalTicks)
-        #expect(state.commission?.id == first.id || state.commission == nil,
-                "a second contract was posted while the first was outstanding")
+        // Watch every tick across several settlements. A new id may appear only
+        // once the previous contract's deadline has passed — sampling a single
+        // later tick can't tell "replaced early" from "closed, then reposted".
+        var open = first
+        var replacements = 0
+        for _ in 0..<(quota.intervalTicks * 3) {
+            state.tick()
+            guard let now = state.commission, now.id != open.id else { continue }
+            #expect(state.tickCount >= open.deadlineTick,
+                    "contract \(now.id) posted at tick \(state.tickCount) while \(open.id) was open until \(open.deadlineTick)")
+            open = now
+            replacements += 1
+        }
+        #expect(replacements > 0, "no later contract was ever posted, so nothing was checked")
     }
 
     @Test func commissionGenerationIsDeterministic() {
@@ -188,20 +198,29 @@ struct CommissionTests {
     @Test func aNearMissPaysNothing() {
         let state = withCommissionOffered()
         stockUp(state)
-        guard var contract = state.commission else { return }
+        guard let contract = state.commission else { return }
 
-        // Nudge one line just out of reach: the colony can supply everything
-        // except the last unit of one good.
-        guard let shortGood = contract.sortedLines.first?.good else { return }
-        state.commission?.accepted = true
-        contract = state.commission!
+        // Freeze everything that could close the gap during the window. Left
+        // running, the colony simply produces the missing unit and the "near
+        // miss" is delivered — which is how this test was committed red.
+        for i in state.colonies[0].productionChains.indices {
+            state.colonies[0].productionChains[i].outputPercent = 0
+        }
+        state.currentQuota = nil   // nor may the quota compete for the same stores
+        state.nextQuota = nil
 
-        // Drain that good to just under what the contract asks for.
-        let owed = contract.amount(of: shortGood)
-        let floor = QuotaLedger.reservedGoods.contains(shortGood)
-            ? state.colonies[0].stock.capacity(of: shortGood) * QuotaLedger.reserveFraction
-            : 0
-        let keep = floor + owed - 1
+        // Short a good nobody eats, so population can't widen the gap either.
+        let eaten = Set(ColonistTier.allCases.flatMap {
+            ($0.basicNeeds + $0.luxuryNeeds).map(\.resourceID)
+        })
+        guard let shortGood = contract.sortedLines.first(where: { !eaten.contains($0.good) })?.good else {
+            Issue.record("contract names only goods the colonists eat: \(contract.sortedLines.map(\.good))")
+            return
+        }
+        #expect(state.acceptCommission())
+
+        // Not a reserved good (it isn't eaten), so all of it is drawable.
+        let keep = contract.amount(of: shortGood) - 1
         let held = state.colonies[0].stock.amount(of: shortGood)
         if held > keep { state.colonies[0].stock.drain(shortGood, held - keep) }
 
