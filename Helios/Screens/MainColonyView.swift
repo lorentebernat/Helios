@@ -35,7 +35,7 @@ struct MainColonyView: View {
                 diameter: 380,
                 baseColor: game.activeColony.worldType?.baseColor ?? GameTheme.accent,
                 bandColor: game.activeColony.worldType?.bandColor ?? GameTheme.voidTop,
-                seed: game.activeColony.id.hashValue
+                seed: game.activeColony.id.stableSeed
             )
             .offset(y: -50)
 

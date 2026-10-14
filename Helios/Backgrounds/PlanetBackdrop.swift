@@ -40,14 +40,9 @@ struct PlanetBackdrop: View {
     // blobs, so this is safe to recompute on every body evaluation (every
     // tick) without drifting or needing @State.
     //
-    // NOTE: call sites currently seed from `String.hashValue` (e.g.
-    // `destination.id.hashValue`), which Swift explicitly does NOT guarantee
-    // stable across process launches (it's randomised per-launch to resist
-    // hash-flooding). That's fine here — within one launch a given planet
-    // stays consistent, which is all "looks the same every time you open it"
-    // requires *within a session*. Do not "fix" this by assuming hashValue
-    // is stable across launches. If cross-launch stability is ever wanted,
-    // seed from the summed UTF-8 bytes of the id instead.
+    // Call sites seed from `String.stableSeed`, never Swift's built-in string
+    // hash: that one is randomised per launch, so the planet would re-roll
+    // every time the app starts. HELIOS.md §18 S12.
     private var surfaceBlobs: [SurfaceBlob] {
         var rng = SeededGenerator(seed: seed)
         return (0..<14).map { i in

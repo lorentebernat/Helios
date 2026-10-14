@@ -19,7 +19,7 @@ struct DestinationCard: View {
                 baseColor: destination.worldType.baseColor,
                 bandColor: destination.worldType.bandColor,
                 rotationDuration: 22,
-                seed: destination.id.hashValue
+                seed: destination.id.stableSeed
             )
             .frame(width: 54, height: 54)
 

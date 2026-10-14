@@ -340,6 +340,17 @@ struct HeliosTests {
         #expect(a.ships.map(\.id) == b.ships.map(\.id), "ship ids diverged")
         #expect(a.ships.count == 6, "expected the seed fleet of 5 plus the one queued ship")
     }
+
+    // MARK: - S12: a planet looks the same on every launch
+
+    /// The pinned constant was computed outside this process (FNV-1a in
+    /// Python), so it stands in for the cross-launch check that can't be made
+    /// in-process: a per-launch-seeded hash could never match it.
+    @Test func stableSeedIsLaunchStable() {
+        #expect("kepler-7".stableSeed == -1_498_433_957_753_797_082)
+        #expect("kepler-7".stableSeed == "kepler-7".stableSeed)
+        #expect("kepler-7".stableSeed != "kepler-8".stableSeed)
+    }
 }
 
 // MARK: - Persistence (Phase 1.5 Step 5, extended Phase 2 Step 3)

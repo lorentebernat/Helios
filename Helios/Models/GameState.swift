@@ -496,11 +496,16 @@ final class GameState {
             ?? standing.cadenceMinutes(base: QuotaGenerator.baseIntervalMinutes)
     }
 
-    /// What a fully met quota would pay at the current cadence and band. For
-    /// Step 8's panel, and for reasoning about pacing without running a cycle.
+    /// What the live manifest would pay if fully met, at the current band. For
+    /// the panel, and for reasoning about pacing without running a cycle.
+    ///
+    /// Uses the live manifest's own window, not `quotaCadenceMinutes`: after a
+    /// band move the manifest keeps the window it was issued with for a full
+    /// cycle, and the band's new cadence would overstate (or understate) the
+    /// payment by up to 50% until then.
     var stipendForAMetQuota: Int {
         Int((Self.stipendPerGameMinute
-             * quotaCadenceMinutes
+             * (currentQuota?.intervalMinutes ?? quotaCadenceMinutes)
              * standing.band.stipendMultiplier).rounded())
     }
 
