@@ -28,15 +28,19 @@ struct StipendTests {
         for _ in 0..<ticks { state.tick() }
     }
 
-    /// A fresh game with the cadence held at the Indifferent figure, so cycle
-    /// counts and payments are predictable.
-    private func fixedCadence(band: StandingBand = .indifferent) -> GameState {
+    /// A fresh game sitting in `band`, with manifests issued at **that band's
+    /// own cadence** — no override. Pinning the cadence to 240 regardless of
+    /// band is exactly the decoupling that hid the per-shipment stipend from
+    /// every test.
+    ///
+    /// Reliability sits mid-window, not a hair under the next threshold, so a
+    /// test that runs more than one cycle doesn't promote by accident.
+    private func atBand(_ band: StandingBand = .indifferent) -> GameState {
         let state = GameState.seeded()
-        state.standing = Standing(reliability: Standing.riseThresholds.indices.contains(band.rawValue)
-                                    ? (Standing.riseThresholds[band.rawValue] - 0.01)
-                                    : 1.0,
-                                  band: band)
-        state.quotaCadenceOverrideMinutes = QuotaGenerator.baseIntervalMinutes
+        let i = band.rawValue
+        let lower = i > 0 ? Standing.fallThresholds[i - 1] : 0
+        let upper = i < Standing.riseThresholds.count ? Standing.riseThresholds[i] : 1
+        state.standing = Standing(reliability: (lower + upper) / 2, band: band)
         reissueManifests(state)
         return state
     }
@@ -76,7 +80,7 @@ struct StipendTests {
     @Test func partialDeliveryPaysPartially() {
         // Load 2.0 asks for twice what the colony can spare, so fill settles
         // well short of 1.0 and the payment has to follow it down.
-        let state = fixedCadence()
+        let state = atBand()
         state.quotaLoad = 2.0
         reissueManifests(state)
 
@@ -124,37 +128,44 @@ struct StipendTests {
 
     // MARK: - The band ladder means what it looks like
 
-    /// Because the stipend is paid per shipment rather than per settlement,
-    /// income per game-minute is exactly `stipendMultiplier`. Paid per
-    /// settlement it would run 0 / 1.25 / 1.25 / 1.00 / 0.75 and Patron would
-    /// earn 40% less per hour than Indifferent — the opposite of §4.1's "bonus
-    /// stipend".
-    @Test func incomePerGameMinuteRisesWithTheBand() {
-        var rates: [(band: StandingBand, perMinute: Double)] = []
+    /// The stipend is paid per shipment, not per settlement: a real cycle at a
+    /// band's own cadence pays `1.25 × cadence × stipendMultiplier`. Paid flat
+    /// per settlement, income per game-minute would run 0 / 1.25 / 1.25 / 1.00
+    /// / 0.75 and Patron would earn 40% less per hour than Indifferent — the
+    /// opposite of §4.1's "bonus stipend". At 240 minutes the two models are
+    /// indistinguishable, so these run at 600 and 168.
+    @Test(arguments: [(StandingBand.patron, 600.0, 1_125), (.scrutinised, 168.0, 147)])
+    func aMetShipmentIsPaidForTheCadenceItCovers(band: StandingBand, cadence: Double, expected: Int) {
+        let state = atBand(band)
+        guard let quota = state.currentQuota else { return }
+        #expect(quota.intervalMinutes == cadence, "precondition: \(band.displayName) runs at \(cadence)")
 
-        for band in StandingBand.allCases {
-            let cadence = QuotaGenerator.baseIntervalMinutes * band.cadenceMultiplier
-            let payment = GameState.stipendPerGameMinute * cadence * band.stipendMultiplier
-            rates.append((band, payment / cadence))
+        run(state, ticks: quota.intervalTicks)
+        guard let settled = state.settlementHistory.last else {
+            Issue.record("nothing settled")
+            return
         }
-
-        for (band, perMinute) in rates {
-            let expected = GameState.stipendPerGameMinute * band.stipendMultiplier
-            #expect(abs(perMinute - expected) < 1e-9,
-                    "\(band.displayName) earns \(perMinute)/min, expected \(expected)")
-        }
-
-        let ordered = rates.map(\.perMinute)
-        #expect(ordered == ordered.sorted(),
-                "income per game-minute must rise with the band, got \(ordered)")
-        #expect(ordered.first == 0, "Receivership must pay nothing")
+        #expect(settled.fill > 0.99, "precondition: a met cycle, got \(settled.fill)")
+        #expect(settled.stipend == expected,
+                "\(band.displayName) at \(cadence) min paid \(settled.stipend), expected \(expected)")
     }
 
+    /// The readout must quote the live manifest's window, not the band's new
+    /// cadence. A fresh game promotes to Favourable at the first settlement
+    /// while the promoted manifest keeps its 240-minute window — the case that
+    /// overstated the payment by 50% (540 shown, 360 paid). Measured on a
+    /// fixed cadence the two windows are equal and the bug is invisible.
     @Test func theStipendReadoutMatchesWhatIsActuallyPaid() {
-        let state = fixedCadence()
+        let state = GameState.seeded()
+        guard let first = state.currentQuota else { return }
+        run(state, ticks: first.intervalTicks)
+
+        #expect(state.standing.band == .favourable, "precondition: the first settlement promotes")
+        #expect(state.currentQuota?.intervalMinutes != state.quotaCadenceMinutes,
+                "precondition: the live window and the band's cadence differ")
+
         let quoted = state.stipendForAMetQuota
         guard let quota = state.currentQuota else { return }
-
         run(state, ticks: quota.intervalTicks)
         guard let settled = state.settlementHistory.last else { return }
         #expect(settled.fill > 0.99, "precondition: a met cycle")

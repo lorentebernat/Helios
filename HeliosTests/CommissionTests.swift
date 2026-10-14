@@ -188,8 +188,15 @@ struct CommissionTests {
         #expect(bold.standing.reliability < startingReliability)
     }
 
+    /// On the contract itself, not the generator's statics: resolution reads
+    /// the contract's fields, so swapping them at the call site has to show.
     @Test func failingCostsMoreThanDeliveringPays() {
-        #expect(CommissionGenerator.standingPenalty > CommissionGenerator.standingReward,
+        let state = withCommissionOffered()
+        guard let contract = state.commission else {
+            Issue.record("no commission was posted")
+            return
+        }
+        #expect(contract.standingPenalty > contract.standingReward,
                 "if the reward matched the penalty, accepting everything would be free and ignoring would be a dominated choice")
     }
 
@@ -251,49 +258,91 @@ struct CommissionTests {
         run(withContract, ticks: quota.intervalTicks * 3)
         run(without, ticks: quota.intervalTicks * 3)
 
+        // Equality, not `<=`: the defect is a commission *stealing* from the
+        // quota, which lowers its fill — and lower would pass a `<=`.
         let contractFills = withContract.settlementHistory.map(\.fill)
         let plainFills = without.settlementHistory.map(\.fill)
+        #expect(contractFills.count == plainFills.count && !plainFills.isEmpty)
         for (i, fill) in contractFills.enumerated() where i < plainFills.count {
-            #expect(fill <= plainFills[i] + 1e-9,
-                    "cycle \(i): the quota filled higher with a commission running, which is impossible if it collects first")
+            #expect(abs(fill - plainFills[i]) < 1e-9,
+                    "cycle \(i): the quota filled \(fill) with a commission running against \(plainFills[i]) without — it must collect first")
         }
     }
 
+    /// Starts with every reserved good a few units above its floor, against a
+    /// contract asking far more than that — the case where the floor actually
+    /// has to hold. (A fully stocked fixture left 45 points of slack, so the
+    /// property could not be violated.) The quota is removed so it can't take
+    /// the drawable sliver first and leave the commission nothing to test.
     @Test func commissionsNeverBreachTheReserveFloor() {
         let state = withCommissionOffered()
-        stockUp(state)
-        state.acceptCommission()
         guard let contract = state.commission else { return }
+        state.currentQuota = nil
+        state.nextQuota = nil
+
+        let reservedLines = contract.sortedLines.filter { QuotaLedger.reservedGoods.contains($0.good) }
+        #expect(!reservedLines.isEmpty, "precondition: the contract names a reserved good")
+        for good in QuotaLedger.reservedGoods {
+            let stock = state.colonies[0].stock
+            let target = stock.capacity(of: good) * QuotaLedger.reserveFraction + 3
+            stock.amount(of: good) > target
+                ? state.colonies[0].stock.drain(good, stock.amount(of: good) - target)
+                : state.colonies[0].stock.deposit(good, target - stock.amount(of: good))
+        }
+        for line in reservedLines {
+            #expect(line.amount > 3, "precondition: \(line.good) asks more than is drawable")
+        }
+        #expect(state.acceptCommission())
 
         var previous = [Resource.ID: Double]()
+        var checked = 0
         while state.tickCount < contract.deadlineTick {
             state.tick()
+            guard state.commission != nil else { break }   // resolved on the deadline tick
             for good in QuotaLedger.reservedGoods {
                 let stock = state.colonies[0].stock
                 let amount = stock.amount(of: good)
                 let floor = stock.capacity(of: good) * QuotaLedger.reserveFraction
                 let now = state.commissionLedger.amountDelivered(of: good)
                 if now > (previous[good] ?? 0) + 1e-9 {
+                    checked += 1
                     #expect(amount >= floor - 1e-6,
                             "a commission took \(good) and left \(amount), below its floor of \(floor)")
                 }
                 previous[good] = now
             }
         }
+        #expect(checked > 0, "the commission never took a reserved good, so nothing was checked")
     }
 
-    /// A contract can never ask for something the reserve floor forbids handing
-    /// over, so a stocked colony is never asked the impossible.
+    /// Reserved goods are sized from the capacity *above the floor*, not from
+    /// the whole tank. Bounded against the floor directly: if headroom forgot
+    /// it, a reserved line would come out at `intensity × capacity`, which is
+    /// what this rules out. Ids 1–6 rotate through every eligible good.
     @Test func contractsAreSizedWithinTheDrawableHeadroom() {
         let state = withCommissionOffered()
-        guard let contract = state.commission else { return }
-        var full = ColonyStock()
-        for resource in Resource.all { full.deposit(resource.id, resource.capacity) }
+        guard let quota = state.currentQuota else { return }
+        let colony = state.colonies[0]
 
-        for line in contract.sortedLines {
-            #expect(line.amount <= QuotaLedger.drawable(line.good, from: full) + 1e-6,
-                    "\(line.good): asks \(line.amount), only \(QuotaLedger.drawable(line.good, from: full)) is ever drawable")
+        var reservedSeen = 0
+        for id in 1...6 {
+            guard let contract = CommissionGenerator.generate(
+                id: id, colony: colony, against: quota, offeredAtTick: 0,
+                economyRate: GameState.economyRate,
+                stipendPerGameMinute: GameState.stipendPerGameMinute
+            ) else { continue }
+
+            for line in contract.sortedLines {
+                let capacity = colony.stock.capacity(of: line.good)
+                let floor = QuotaLedger.reservedGoods.contains(line.good)
+                    ? capacity * QuotaLedger.reserveFraction : 0
+                if floor > 0 { reservedSeen += 1 }
+                let ceiling = CommissionGenerator.intensity * (capacity - floor) + 0.05   // one-decimal rounding
+                #expect(line.amount <= ceiling,
+                        "\(line.good): asks \(line.amount), headroom above the floor allows \(ceiling)")
+            }
         }
+        #expect(reservedSeen > 0, "no contract named a reserved good, so the floor was never checked")
     }
 
     // MARK: - Accepting is a commitment

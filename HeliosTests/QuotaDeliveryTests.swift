@@ -70,6 +70,17 @@ struct QuotaDeliveryTests {
         return values.reduce(0, +) / Double(values.count)
     }
 
+    /// The mean over nine goods absorbs one store saturating (0.4 → 1.0 moves
+    /// it by ~0.067), so every store but oxygen is also checked on its own.
+    /// Oxygen holds a full tank by design — see
+    /// `oxygenHoldsABufferAndTheRecyclerKeepsRunning`. Measured at 5,000 ticks:
+    /// the highest of the rest is ration-bars at 0.58.
+    private func expectNoStoreSaturated(_ state: GameState, _ context: String) {
+        for (id, fill) in stores(state) where id != "oxygen" {
+            #expect(fill < 0.70, "\(id) at \(fill) \(context) — saturating")
+        }
+    }
+
     // MARK: - The sink has to be permanent
 
     /// **The regression test for the bug Step 3 shipped and then fixed.** A
@@ -99,20 +110,22 @@ struct QuotaDeliveryTests {
         }
         #expect(meanStoreFill(state) < 0.55,
                 "mean store fill \(meanStoreFill(state)) after twelve cycles — drifting back to saturation")
+        expectNoStoreSaturated(state, "after twelve cycles")
     }
 
     // MARK: - The ledger's whole justification
 
     /// **The reason a quota is a ledger and not a snapshot**, measured across
-    /// the five cadences Standing actually uses: 96, 168, 240, 360 and 600
-    /// game-minutes.
+    /// the five cadences Standing actually uses — 96, 168, 240, 360 and 600
+    /// game-minutes — plus 60, 960 and 2,880, the span `QuotaLedger`'s header
+    /// cites.
     ///
     /// Interval length must have no economic effect whatsoever, because that is
     /// what lets cadence be a pure attention-and-planning mechanic: a shorter
     /// interval is a smaller shipment, not a heavier one. Measured over 3,000
-    /// ticks, the largest store difference across all five is 0.0001 and the
-    /// largest throughput difference is 0.0000, with every cycle settling at
-    /// fill 1.0000 whether that is thirty-one cycles or five.
+    /// ticks across the five band cadences, the largest store difference is
+    /// 0.0001 and the largest throughput difference is 0.0000, with every cycle
+    /// settling at fill 1.0000 whether that is thirty-one cycles or five.
     @Test func cadenceLengthDoesNotChangeTheEconomy() {
         var results: [(cadence: Double,
                        stores: [Resource.ID: Double],
@@ -121,8 +134,8 @@ struct QuotaDeliveryTests {
                        lastFill: Double,
                        cycles: Int)] = []
 
-        for band in StandingBand.allCases {
-            let cadence = QuotaGenerator.baseIntervalMinutes * band.cadenceMultiplier
+        let bandCadences = StandingBand.allCases.map { QuotaGenerator.baseIntervalMinutes * $0.cadenceMultiplier }
+        for cadence in bandCadences + [60, 960, 2_880] {
             let state = seeded(cadence: cadence)
             run(state, ticks: 3_000)
             results.append((cadence,
@@ -237,6 +250,7 @@ struct QuotaDeliveryTests {
     @Test func theEmpireNeverDrawsBelowTheReserveFloor() {
         let state = seeded(load: 4.0)
         var previous = [Resource.ID: Double]()
+        var checked = 0
 
         for _ in 0..<3_000 {
             state.tick()
@@ -251,12 +265,17 @@ struct QuotaDeliveryTests {
                 // compare against zero rather than last cycle's total.
                 let baseline = now < (previous[good] ?? 0) ? 0 : (previous[good] ?? 0)
                 if now > baseline + 1e-9 {
+                    checked += 1
                     #expect(amount >= floor - 1e-6,
                             "the Empire took \(good) and left \(amount), below its floor of \(floor)")
                 }
                 previous[good] = now
             }
         }
+
+        // Self-conditioned: if a regression stopped delivery entirely, the
+        // check above would never run and this would pass green.
+        #expect(checked > 0, "the Empire never took a reserved good, so nothing was checked")
 
         #expect(state.colonies[0].population.total > 0,
                 "the colony must survive a punishing quota — Receivership has a floor (HELIOS.md §4.1)")
@@ -309,6 +328,7 @@ struct QuotaDeliveryTests {
 
         #expect(meanStoreFill(state) < 0.55,
                 "mean store fill \(meanStoreFill(state)) — the economy is drifting back toward saturation")
+        expectNoStoreSaturated(state, "after 5,000 ticks")
         #expect(abs(colony.population.total - 450) <= 2)
     }
 

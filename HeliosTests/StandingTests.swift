@@ -43,28 +43,81 @@ struct StandingTests {
     /// **The single most important test in this phase.**
     ///
     /// Falling Standing shortens the interval and shrinks each shipment
-    /// proportionally. Total demand per game-minute is identical at
-    /// Receivership and at Indifferent — and at every band in between. Getting
-    /// this wrong makes a bad cycle make the next one harder, which is
-    /// structurally the same failure as a brownout throttling the power plant
-    /// that would end it. HELIOS.md §4.1.
+    /// proportionally; total demand per game-minute never rises. Getting this
+    /// wrong makes a bad cycle make the next one harder, which is structurally
+    /// the same failure as a brownout throttling the power plant that would end
+    /// it. HELIOS.md §4.1.
     ///
-    /// Measured: 19.9000 per game-minute at all five bands, and Power Cells at
-    /// 5.2500 per game-minute at all five. The property is not defended by a
-    /// guard — it falls out of sizing each line as
-    /// `capacity × interval × load`, so `line / interval` cancels the interval.
-    /// Which means the way this breaks in future is somebody changing the
-    /// sizing formula, and this test is what catches that.
+    /// End to end: the colony really fails, `tick()` really settles, the band
+    /// really falls, and every manifest `GameState` announces on the way down
+    /// is compared against what the same colony, at the same moment, would be
+    /// asked at the base cadence. A band penalty anywhere on that path —
+    /// `generateQuota`, settlement, the generator's arguments — turns this red.
+    ///
+    /// The tolerance is the generator's one-decimal rounding and nothing more:
+    /// a line can move by at most 0.05 units, i.e. 0.05 / interval per minute.
+    /// A failing colony's capacity doesn't land on tenths, so exact equality
+    /// would be red for the wrong reason; any real penalty is orders larger.
     @Test func failureNeverRaisesTheDemandRate() {
         let state = GameState.seeded()
 
-        let indifferent = manifest(state, at: .indifferent)
+        // Fail for real: nothing produced, nothing in the stores to deliver.
+        // Assessment forces every chain to 100%, so the colony is still sized
+        // as installed (that is the anti-throttling rule doing its job).
+        for i in state.colonies[0].productionChains.indices {
+            state.colonies[0].productionChains[i].outputPercent = 0
+        }
+        for resource in Resource.all {
+            state.colonies[0].stock.drain(resource.id, resource.capacity)
+        }
 
-        // Ten settled cycles delivering nothing at all.
-        for _ in 0..<10 { state.standing.settle(fill: 0) }
+        var settled = 0
+        var bandsSeen: Set<StandingBand> = []
+        while state.standing.band > .receivership && state.tickCount < 5_000 {
+            state.tick()
+            guard state.settlementHistory.count > settled else { continue }
+            settled = state.settlementHistory.count
+
+            guard let announced = state.nextQuota else {
+                Issue.record("no manifest announced after settlement \(settled)")
+                return
+            }
+            bandsSeen.insert(state.standing.band)
+            #expect(announced.intervalMinutes == state.quotaCadenceMinutes,
+                    "precondition: the announced manifest carries the band's cadence")
+
+            let reference = QuotaGenerator.generate(
+                id: 0, colony: state.colonies[0], economyRate: GameState.economyRate,
+                issuedAtTick: state.tickCount,
+                intervalMinutes: QuotaGenerator.baseIntervalMinutes,
+                load: state.quotaLoad
+            )
+            let rounding = 0.05 * Double(announced.lineCount) / announced.intervalMinutes + 1e-9
+            #expect(abs(announced.totalDemandPerGameMinute - reference.totalDemandPerGameMinute) <= rounding,
+                    "at \(state.standing.band.displayName) the Empire asks \(announced.totalDemandPerGameMinute)/min against \(reference.totalDemandPerGameMinute)/min at the base cadence")
+        }
+
         #expect(state.standing.band == .receivership,
-                "ten failed cycles should reach the bottom band, got \(state.standing.band.displayName)")
+                "the colony never fell to Receivership, ended at \(state.standing.band.displayName)")
+        #expect(bandsSeen.contains(.scrutinised) && bandsSeen.contains(.receivership),
+                "the fall should pass through every lower band, saw \(bandsSeen.map(\.displayName))")
+    }
 
+    /// Unit-level companion: two direct calls to the generator at different
+    /// intervals. Note the band never reaches the generator, so this only pins
+    /// the sizing formula — `failureNeverRaisesTheDemandRate` is the one that
+    /// guards the Standing path.
+    ///
+    /// Measured: 19.9000 per game-minute at all five bands, and Power Cells at
+    /// 5.2500. The `1e-9` tolerance survives only because the seed network's
+    /// capacities land on exact tenths, so `(raw * 10).rounded() / 10` cleans
+    /// the float noise. A rebalance that moves a capacity off a tenth will put
+    /// this red **for the wrong reason** — the fix then is a rounding-sized
+    /// tolerance like the end-to-end test's, not an arbitrary looser one.
+    @Test func sizingIsIntervalInvariant() {
+        let state = GameState.seeded()
+
+        let indifferent = manifest(state, at: .indifferent)
         let receivership = manifest(state, at: .receivership)
 
         #expect(abs(receivership.totalDemandPerGameMinute - indifferent.totalDemandPerGameMinute) < 1e-9,
@@ -215,8 +268,9 @@ struct StandingTests {
         reissueManifests(state)
 
         run(state, ticks: 5_000)
-        #expect(state.colonies[0].population.total > 0,
-                "load 4.0 at Receivership emptied the colony")
+        // Pinned, not just `> 0`: a collapse from 101 to 3 is the regression.
+        #expect(abs(state.colonies[0].population.total - 101) <= 3,
+                "load 4.0 at Receivership left \(state.colonies[0].population.total) colonists, measured 101")
     }
 
     // MARK: - Reliability, not size

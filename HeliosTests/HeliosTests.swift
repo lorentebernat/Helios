@@ -214,18 +214,29 @@ struct HeliosTests {
         let state = GameState.seeded()
         tick(state, 2000)
 
+        var checked = 0
         for c in state.colonies[0].productionChains where c.outputPercent > 0 {
             let attainment = c.throughput / c.outputPercent
             if attainment >= 0.98 {
+                checked += 1
                 #expect(c.status.isNominal,
                         "\(c.name) at \(attainment) attainment reported \(c.status), expected .running")
             }
         }
+        // Self-conditioned: a regression that zeroed throughput would skip
+        // every check above and pass green. Eight of ten run at rate.
+        #expect(checked >= 8, "only \(checked) chains were at rate, so almost nothing was checked")
     }
 
     // MARK: - S7: Colony.gridFactor IS the factor the allocator used
 
-    @Test func gridFactorMatchesAllocator() {
+    /// The S7 property — the UI's factor is the one the allocator obeyed — is
+    /// structural: `Colony.gridFactor` is assigned from `ProductionAllocator`'s
+    /// return value and nothing else. It isn't behaviourally testable; an
+    /// earlier assertion recomputed `min(1, supply/demand)` from the same
+    /// struct and passed against the very bug it was written for, so it was
+    /// removed. What's left checks the brownout is actually reported.
+    @Test func brownoutIsReportedInGridFactor() {
         let state = GameState.seeded()
         guard let ppIndex = state.colonies[0].productionChains.firstIndex(where: { $0.name == "Power Plant" }) else {
             Issue.record("No Power Plant in seed data")
@@ -234,11 +245,20 @@ struct HeliosTests {
         state.colonies[0].productionChains[ppIndex].energyProduced = 90   // force a brownout
         tick(state, 1)
 
-        let colony = state.colonies[0]
-        let expected = colony.gridDemand <= 0 ? 1 : min(1, colony.gridSupply / colony.gridDemand)
-        #expect(colony.gridFactor == expected,
-                "gridFactor (\(colony.gridFactor)) should equal supply/demand clamped to 1 (\(expected))")
-        #expect(colony.gridFactor < 1, "this scenario should actually be a brownout")
+        #expect(state.colonies[0].gridFactor < 1, "this scenario should actually be a brownout")
+    }
+
+    // MARK: - §14: tick() reads no clock
+
+    /// The paired determinism tests can't catch a `Date()` inside `tick()`:
+    /// they tick A and B interleaved, so both would read nearly the same clock
+    /// and diverge only intermittently. `lastTickAt` is the one clock-shaped
+    /// field, and only `advanceOneTick(now:)` may write it.
+    @Test func tickReadsNoClock() {
+        let state = GameState.seeded()
+        let before = state.lastTickAt
+        tick(state, 10)
+        #expect(state.lastTickAt == before, "tick() wrote the wall clock")
     }
 
     // MARK: - Population, directly
@@ -372,6 +392,8 @@ struct PersistenceTests {
     /// two runs deliver different amounts and diverge immediately.
     @Test func saveRoundTrips() throws {
         let original = GameState.seeded()
+        // The player's only lever; nothing else guards it through a save.
+        original.colonies[0].productionChains[0].outputPercent = 0.37
         for _ in 0..<500 {
             original.tick()
         }
@@ -380,6 +402,8 @@ struct PersistenceTests {
         let save = try JSONDecoder().decode(GameSave.self, from: data)
         let restored = GameState(save: save)
 
+        #expect(restored.colonies[0].productionChains[0].outputPercent == 0.37,
+                "outputPercent did not survive the round trip")
         #expect(restored.currentQuota == original.currentQuota, "quota did not survive the round trip")
         #expect(restored.ledger == original.ledger, "ledger did not survive the round trip")
 
