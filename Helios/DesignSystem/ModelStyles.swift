@@ -65,3 +65,16 @@ extension WorldType {
         }
     }
 }
+
+extension ResearchCategory {
+    /// SF Symbol for the category chip. View-layer, so it lives here rather
+    /// than on the model (HELIOS.md §18 S9).
+    var icon: String {
+        switch self {
+        case .production: return "cube.transparent.fill"
+        case .fleet: return "paperplane.fill"
+        case .defense: return "shield.lefthalf.filled"
+        case .habitat: return "house.fill"
+        }
+    }
+}

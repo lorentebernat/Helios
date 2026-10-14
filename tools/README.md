@@ -1,8 +1,18 @@
 # tools/ — balance simulation harness
 
-A line-for-line Python port of `ProductionAllocator` and `Population`, used to
-measure the seed economy without building anything in Swift. Produced the figures
-in `HELIOS.md` Appendix C.
+> ⚠️ **Frozen: valid as of Phase 1a (28 Aug 2026).** Unchanged since commit
+> `c58bfd9`. It still has `TOL = 0.001`, no `outputPercent`, the pre-Phase-1a
+> status rule, and no `CapacityProbe`, `QuotaLedger`, `Standing` or
+> `Commission`. **It did not produce the Phase 2 figures in `HELIOS.md`
+> Appendix C** — those were measured by the Swift simulation itself
+> (`GameState.tick()`, `CapacityProbe`), and the load-bearing ones are pinned
+> in `HeliosTests/`. Only the struck-through 28 Aug figures came from here, and
+> Appendix C explains why they were wrong. Do not re-tune anything with this
+> harness; measure in Swift instead.
+
+A line-for-line Python port of `ProductionAllocator` and `Population` as they
+stood in Phase 1a, used to measure the seed economy before the Swift test target
+existed.
 
 | File | What it does |
 |---|---|

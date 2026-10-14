@@ -22,7 +22,7 @@ input**, or a **dated snapshot**. None of them are authoritative.
 | `OGAME_COMPARISON.md` | 📚 Reference input (Aug 2026) | OGame's formulas, the combat spec, the option/trade-off analysis behind decisions already taken. **Its recommendations are not the plan** — see `HELIOS.md` Appendix A for what was actually taken. |
 | `sources/` (31 files) | 📚 Reference input | Anno 1800 mechanics. A *different game*. Nothing in it describes Helios. |
 | `briefs/*.md` | 🔨 Working doc | How to build one specific phase. Dated, disposable, never authoritative. |
-| `tools/*.py` | 🔬 Harness | Balance simulation. Produced Appendix C. Mirrors the Swift by hand — verify before trusting. |
+| `tools/*.py` | 🔬 Harness, frozen | Balance simulation as of Phase 1a (28 Aug 2026). Produced only the superseded 28 Aug figures in Appendix C; the current ones come from the Swift simulation. Don't re-tune with it. |
 
 Also, in the **Claude project**:
 
@@ -46,8 +46,10 @@ Also, in the **Claude project**:
    working documents with a shelf life: when the work lands, fold any decision
    they made into `HELIOS.md` §21 and let the brief go stale in git history.
    A brief is never authoritative — `HELIOS.md` is.
-7. **`tools/` mirrors the Swift by hand and drifts.** Re-check it against
-   `ProductionAllocator` and `Population` before trusting a number from it.
+7. **`tools/` is frozen at Phase 1a.** It mirrored the Swift by hand and has
+   drifted (no `outputPercent`, old status rule, no quota/Standing/commissions).
+   Measure balance in Swift — `GameState.tick()`, `CapacityProbe`, the test
+   suite — not with it.
 
 ## Known housekeeping
 

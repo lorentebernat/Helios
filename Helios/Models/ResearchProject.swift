@@ -1,22 +1,13 @@
 // ResearchProject.swift
 // A single research project: cost in Research Points, category, and status.
 
-import SwiftUI
+import Foundation
 
 enum ResearchCategory: String, CaseIterable {
     case production = "Production"
     case fleet = "Fleet"
     case defense = "Defense"
     case habitat = "Habitat"
-
-    var icon: String {
-        switch self {
-        case .production: return "cube.transparent.fill"
-        case .fleet: return "paperplane.fill"
-        case .defense: return "shield.lefthalf.filled"
-        case .habitat: return "house.fill"
-        }
-    }
 }
 
 // Codable (Phase 1.5 Step 5): synthesised, via SE-0295 enum-with-associated-

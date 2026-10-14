@@ -946,7 +946,7 @@ for 1,200 ticks against `GameState.seeded()`.
 | **S6** | **Resolved, Phase 1a (28 Aug 2026).** Grid demand used `energyRequired × outputCap` computed *before* input allocation, so an input-starved chain still booked full power draw. Fixed: demand now scales by `outputPercent` too, reflecting what each chain will actually draw. | — | Done |
 | **S7** | **Resolved, Phase 1a (28 Aug 2026).** `Colony.gridFactor` was a separately computed re-derivation of `ProductionAllocator`'s internal `energyFactor` — the UI rendered one, the sim obeyed the other. Fixed: `ProductionAllocator.run` now returns the factor it used, and `Colony.gridFactor` stores it verbatim. | — | Done |
 | **S8** | **Resolved, Phase 1.5 (2 Sep 2026).** Twelve tests over `ProductionAllocator` and `Population`, every expected value measured against the real allocator (Appendix C) — including S1's saturation scenario, pinned as a permanent regression test. Four more tests cover the Step 5 persistence round trip. | — | Done |
-| **S9** | `Models/ResearchProject.swift` **imports SwiftUI** (`ResearchCategory.icon`). One crack in the constraint the multiplayer plan rests on. | Low | Move to `ModelStyles` |
+| **S9** | **Resolved, Phase 2 cleanup (14 Oct 2026).** `ResearchCategory.icon` moved to `DesignSystem/ModelStyles.swift` and `Models/ResearchProject.swift` imports only Foundation. `grep -rn "import SwiftUI" Helios/Models/` finds nothing — the model layer is SwiftUI-free, which the multiplayer plan rests on. | — | Done |
 | **S10** | **Research entirely inert**, and the UI doesn't say so — "+12/min from Ascendants" with zero Ascendants and a number that never moves. `status` has been a `var` since Phase 1.5, but nothing ever advances it. | Medium | Archive (§4.6), Phase 5 |
 | **S11** | **Unenforced fields:** `requiredTier` (never checked), `workforceAssigned/Required` (display only; Tool Fab seeded 5/6), `providesWorkforce` (unused), `LimitReason.workforce` (never produced but styled and captioned), `GalaxyCoordinate.distance` (unwired). **`ChainStatus.paused` is now produced** (Phase 1a, 28 Aug 2026) — `outputPercent == 0` reports it; the rest of this row is still open. | Medium | Phase 1 (workforce), §5 |
 | **S12** | **Resolved, Phase 1a + Phase 1.5 (28 Aug – 2 Sep 2026).** Phase 1a's `@State` fix stopped the per-tick re-roll but not a per-tab-switch one: `RootView` selects tabs with a `switch`, so each tab is a distinct view identity, and switching tabs tore `VoidBackground`'s `@State` down and regenerated it. Phase 1.5 Step 1 made the starfield a `private static let`, generated once per launch and shared by every instance — it does not want per-view identity at all. `PlanetBackdrop` now takes a `seed: Int` (new `SeededGenerator`, SplitMix64) so a given world looks identical every time it's opened, while different worlds still differ. **Reopened and re-fixed 14 Oct 2026:** both call sites seeded from `String.hashValue`, which Swift randomises per launch, so the planet still re-rolled on every launch. They now use `String.stableSeed` (FNV-1a), pinned by a test against an out-of-process value. See §23. | — | Done |
@@ -962,7 +962,7 @@ for 1,200 ticks against `GameState.seeded()`.
   no dependency graph is why the allocator stays ~140 lines.
 - **The two-phase allocator.** Exempting energy producers from their own grid
   factor is a subtle failure mode correctly anticipated and correctly solved.
-- **Model/view purity.** One violation (S9) in 44 files.
+- **Model/view purity.** No violations since S9 closed (14 Oct 2026).
 - **`tick()` reads no clock.** Decided before it was needed.
 - **The decision log.** Rejected alternatives recorded alongside choices.
 - **The design system.** Token discipline near-total.
@@ -1652,6 +1652,8 @@ changing it.
 | `HELIOS_WORLD.md` | ⚠️ Superseded stub → this file. Full text in git history. |
 | `OGAME_COMPARISON.md` | 📚 **Reference input**, Aug 2026. Not authoritative. Conclusions live in Appendix A. Keep for its formulas and the combat spec. |
 | `DOCS.md` | Map of what's authoritative and what isn't. |
+| `briefs/` | 🔨 Implementation briefs, one per phase (§19 cites them). Working documents: dated, disposable, never authoritative — decisions they make are folded into §21. |
+| `tools/` | 🔬 Python balance harness. **Frozen at Phase 1a (28 Aug 2026)**; produced only the superseded 28 Aug figures in Appendix C. See its README. |
 | — | 📌 `AUDIT-2026-08-28.md` lives in the **Claude project**: a point-in-time snapshot valid only for commit `e5ae9ca`. Its findings are folded into §18, which is the live status. |
 
 ### The reference library (`sources/`, 31 files)
@@ -1695,10 +1697,15 @@ Search is the way to audit a project for duplicates, not the file listing.
 
 ## Appendix C — Simulated balance baseline (re-measured Phase 2, 4–14 Oct 2026)
 
-Produced by a line-for-line Python port of `ProductionAllocator` and `Population`
-run against `GameState.seeded()`. Scripts live in `tools/`; re-run them whenever
-the chain network, resource capacities or population tuning change — **every
-number below is a measurement of the current seed data, not a constant.**
+**Provenance.** Every current figure below was measured in Phase 2 by the Swift
+simulation itself — `GameState.tick()` and `CapacityProbe` on
+`GameState.seeded()` — and the load-bearing ones are pinned in `HeliosTests/`.
+The struck-through **28 Aug** figures came from the Python harness in `tools/`,
+a hand port of `ProductionAllocator` and `Population` that is **frozen at Phase
+1a** and cannot model quota, ledger, Standing or commissions; don't re-tune with
+it. Re-measure in Swift whenever the chain network, resource capacities or
+population tuning change — **every number below is a measurement of the current
+seed data, not a constant.**
 
 ### Export capacity ▲ corrected
 
