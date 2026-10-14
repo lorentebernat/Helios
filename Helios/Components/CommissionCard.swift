@@ -66,23 +66,7 @@ struct CommissionCard: View {
 
             VStack(spacing: GameTheme.Spacing.xs) {
                 ForEach(commission.sortedLines, id: \.good) { line in
-                    let behind = commission.isBehindPace(line.good, ledger: ledger, atTick: tick)
-                    HStack(spacing: GameTheme.Spacing.sm) {
-                        Image(systemName: Resource.byID(line.good)?.icon ?? "questionmark.circle")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(behind ? GameTheme.warn : GameTheme.textSecondary)
-                            .frame(width: 16)
-                        Text(Resource.byID(line.good)?.name ?? line.good)
-                            .font(GameTheme.Font.caption)
-                            .foregroundStyle(GameTheme.textPrimary)
-                        Spacer()
-                        Text(commission.accepted
-                             ? "\(Format.decimal(ledger.amountDelivered(of: line.good))) / \(Format.decimal(line.amount))"
-                             : Format.decimal(line.amount))
-                            .font(GameTheme.Font.body)
-                            .foregroundStyle(behind ? GameTheme.warn : GameTheme.textPrimary)
-                            .monospacedDigit()
-                    }
+                    lineRow(good: line.good, amount: line.amount)
                 }
             }
 
@@ -146,6 +130,29 @@ struct CommissionCard: View {
         }
         .padding(GameTheme.Spacing.lg)
         .glass(cornerRadius: GameTheme.Radius.panel, strokeOpacity: GameTheme.GlassStroke.standard)
+    }
+
+    /// Extracted rather than inlined: a `let` as the first statement in a
+    /// `ForEach` closure breaks type inference (HELIOS.md §23).
+    @ViewBuilder
+    private func lineRow(good: Resource.ID, amount: Double) -> some View {
+        let behind = commission.isBehindPace(good, ledger: ledger, atTick: tick)
+        HStack(spacing: GameTheme.Spacing.sm) {
+            Image(systemName: Resource.byID(good)?.icon ?? "questionmark.circle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(behind ? GameTheme.warn : GameTheme.textSecondary)
+                .frame(width: 16)
+            Text(Resource.byID(good)?.name ?? good)
+                .font(GameTheme.Font.caption)
+                .foregroundStyle(GameTheme.textPrimary)
+            Spacer()
+            Text(commission.accepted
+                 ? "\(Format.decimal(ledger.amountDelivered(of: good))) / \(Format.decimal(amount))"
+                 : Format.decimal(amount))
+                .font(GameTheme.Font.body)
+                .foregroundStyle(behind ? GameTheme.warn : GameTheme.textPrimary)
+                .monospacedDigit()
+        }
     }
 }
 
