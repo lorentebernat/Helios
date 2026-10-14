@@ -30,8 +30,9 @@
 // game-minute would run 0 / 1.25 / 1.25 / 1.00 / 0.75 across the bands, so
 // Patron would pay 40% less per hour than Indifferent — the opposite of §4.1's
 // "bonus stipend". The stipend is therefore paid for the *shipment*, scaled by
-// the cadence it covers, which makes income per game-minute exactly
-// `stipendMultiplier`. See `GameState.payStipend`.
+// the cadence it covers, which makes income per game-minute
+// `stipendPerGameMinute × stipendMultiplier` — proportional to the multiplier,
+// not equal to it. See `GameState.payStipend`.
 
 import Foundation
 
@@ -82,8 +83,9 @@ enum StandingBand: Int, Codable, CaseIterable, Comparable {
     }
 
     /// Multiplier on the stipend. Because the stipend is paid per shipment
-    /// rather than per settlement, this is also income per game-minute relative
-    /// to Indifferent — so the ladder reads exactly as it looks.
+    /// rather than per settlement, this is also income per game-minute
+    /// *relative to Indifferent* — so the ladder reads exactly as it looks. The
+    /// absolute rate is this × `GameState.stipendPerGameMinute`.
     ///
     /// **Receivership pays nothing and the goods still leave.** At the bottom
     /// band the Empire collects at the dock: full delivery, no payment. That is

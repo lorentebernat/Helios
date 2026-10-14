@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Status** | Authoritative. Nothing else in this repo overrides it. |
-| **Last reconciled** | 13 October 2026, after Phase 2. Every balance figure in Appendix C re-measured against the live allocator during that phase — the 28 Aug figures were wrong and are corrected there. |
+| **Last reconciled** | 14 October 2026, after the Phase 2 cleanup (`briefs/phase-2-cleanup.md`). Every balance figure in Appendix C re-measured against the live allocator during that phase — the 28 Aug figures were wrong and are corrected there. |
 | **Supersedes** | `HELIOS_DESIGN.md`, `HELIOS_ROADMAP.md`, `HELIOS_WORLD.md` — all three now stubs pointing here. Their full text is in git history. |
 | **Reference, not authority** | `OGAME_COMPARISON.md` (research input), `sources/` (Anno 1800 library), `AUDIT-2026-08-28.md` in the Claude project (point-in-time snapshot) |
 
@@ -95,7 +95,7 @@ sets output percentages, upgrades buildings, and dispatches ships. This is the
 north star for every pacing number.
 
 **Endless.** No win condition. Long-term motivation is the standing ladder
-(§4, §6) and eventually asynchronous multiplayer (§19, Phase 8).
+(§4, §6) and eventually asynchronous multiplayer (§19, Phase 9).
 
 **Play pattern:** both. Short sessions, offline continuity between them.
 
@@ -135,7 +135,7 @@ out to get you. The quota arrives on time whether or not your harvesters are
 running.
 
 **Technical consequence:** *the Empire keeps the ledger* is the in-fiction reason
-the multiplayer architecture is server-authoritative (§19 Phase 8). The
+the multiplayer architecture is server-authoritative (§19 Phase 9). The
 constraint and the story are the same sentence.
 
 ### 4.1 Standing — posture is dynamic
@@ -218,16 +218,19 @@ not take a snapshot of your stores at the deadline.**
 This was tested rather than assumed (Appendix C), and snapshot settlement fails
 badly. Because a snapshot can only take what you are *holding*, quota size is
 silently capped by storage capacity rather than by production. At a 960-minute
-interval the power-cell demand is **19× everything the colony can physically
-hold** — unmeetable at any level of industry. Worse, the interval lengthens as
+interval the power-cell line is 5.25 × 960 = 5,040 units against a 200-unit
+store — **25× everything the colony can physically hold** — unmeetable at any
+level of industry. Worse, the interval lengthens as
 standing improves, so under snapshot settlement *the better you play, the more
 impossible the quota becomes*. That is the standing spiral reappearing through
 a side door.
 
-Ledger delivery removes it completely. Measured fill rate across intervals of
-60, 240, 960 and 2,880 minutes: **0.59, 0.59, 0.60, 0.60** — interval has no
-economic effect at all. That is exactly what §4.1 needs: cadence can be a pure
-attention-and-planning mechanic with no hidden economic consequence.
+Ledger delivery removes it completely. Measured across all five band cadences
+(96–600 minutes, Appendix C): every cycle settles at fill **1.0000**, and stores,
+population and throughputs match to within 0.0001 — interval has no economic
+effect at all. A test pins the same property from 60 to 2,880 minutes. That is
+exactly what §4.1 needs: cadence can be a pure attention-and-planning mechanic
+with no hidden economic consequence.
 
 It also gives the fleet a real job. You deliver in several trips across the
 interval rather than one lump, so hauling capacity and trip timing matter, and
@@ -238,16 +241,17 @@ storage becomes a buffer for *timing* rather than a ceiling on ambition.
 Quota per good is set from that good's **measured export capacity** — production
 net of colonist consumption — times the interval, times a load factor.
 
-**Load 1.0 is the target.** Re-measured after Phase 2, against corrected
+**Load 1.0 is the target.** Re-measured 14 Oct 2026 — 5,000 ticks at a
+240-minute cadence, stores as mean fraction of capacity — against corrected
 capacity figures (Appendix C):
 
 | Load | Settled fill | Stores settle at | Population |
 |---|---|---|---|
-| 0.5 | 1.000 | 98% — still saturated | 450 |
-| 0.75 | 1.000 | 95% — still saturated | 450 |
-| **1.0** | **1.000** | **29% mean** | **450** |
-| 1.2 | 0.783 | 17% | 439 — colonists dying |
-| 3.0 | 0.489 | 56% | 229 — colony collapsing |
+| 0.5 | 1.000 | 97% — still saturated | 450 |
+| 0.75 | 1.000 | 97% — still saturated | 450 |
+| **1.0** | **1.000** | **40% mean** | **450** |
+| 1.2 | 0.783 | 9% | 439 — colonists dying |
+| 3.0 | 0.456 | 5% | 206 — colony collapsing |
 
 Below ~0.75 the quota is too small to be a sink and the colony stays saturated.
 Above ~1.2 the quota starts eating the colony. **The usable band is narrow**, and
@@ -278,21 +282,23 @@ the honest fix is not a load number — it is the second sink (§20, Phase 5).
 
 A hard floor reserves a fraction of storage (30% in testing) on basic-need goods
 — oxygen, rations, water — which quota may never draw below. Without it, high
-quota loads kill the colony outright: at load 3.0, population ends at 192 with
-the reserve and **90** without; at load 4.0, 89 with and **zero** without.
+quota loads kill the colony outright: at load 3.0, population ends at 206 with
+the reserve and **108** without; at load 4.0, 101 with and **zero** without
+(Appendix C). The floor binds the Empire, not the colonists: they eat first and
+are never floor-limited, or they would starve with food in the warehouse.
 
 Note the reserve protects *basic* needs only. Luxuries stay contested on purpose:
-at load 1.0 the settlers sit at **0.86 happiness** because the Empire is taking
-the Alloy Tools they want. That blocks promotion and is exactly the intended
-squeeze — the Empire's demand competing with your colonists' comfort, with the
-player holding the output-% lever that resolves it.
+**above** load 1.0 the Empire competes for the Alloy Tools the Settlers want,
+which blocks promotion, with the player holding the output-% lever that resolves
+it. At load 1.0 there is no such squeeze — see the section above.
 
 ### 4.3 Commissions — the optional half
 
 Alongside the mandatory quota, the Empire occasionally posts **Commissions** ⚑:
 optional contracts you may take or ignore.
 
-- Opting in and delivering earns **Favour** and repairs Standing
+- Opting in and delivering earns **Favour** and repairs Standing *(as built in
+  Phase 2: credits and a direct Standing bump — Favour waits for Phase 5, §4.4)*
 - Opting in and failing costs more than never opting in at all
 - Ignoring them is always safe, and always leaves value on the table
 
@@ -335,7 +341,7 @@ You are an administrator, not an emperor. You cannot simply build.
 A **Writ** ⚑ authorises: a plot, a new colony claim, a class of building, a tier
 of habitat. Writs cost credits; availability and price depend on Standing.
 
-This is the fiction for the plot cap and for levels (§13, §19 Phase 4). A cap
+This is the fiction for the plot cap and for levels (§13, §19 Phase 5). A cap
 that exists because *permission* is scarce reads far better than an arbitrary
 number, and it explains why the constraint loosens as you rise. "The Empire's
 writ" is also the natural phrase for how far its authority reaches — see §6.
@@ -357,8 +363,10 @@ research screen (§18 S10) a reason to have a locked state at all.
 | **Favour** | Commissions, Ascendant dividend | Dispensations |
 | **Research Points** | Generated locally by Ascendants | Archive projects (gated on Standing) |
 
-No source feeds two currencies; no currency has two sinks. **Worth protecting as
-the design grows.**
+No source feeds two currencies, and **no currency gets a source before it has a
+sink** — that is how `credits` became S3, and why Favour waits for Phase 5 (§21).
+Sinks can multiply (credits already have two); unsunk sources cannot. **Worth
+protecting as the design grows.**
 
 ### 4.8 Cadence and the real-time clock
 
@@ -385,8 +393,9 @@ with whatever accumulated, shortfall recorded. Absence therefore costs you the
 *optimisation* — a present player retasks chains to close the gap — but never
 strands you behind an unmeetable snapshot.
 
-**Interval length has no economic effect.** Verified across 60 → 2,880 minute
-intervals (Appendix C). This is what makes the band system in §4.1 safe: cadence
+**Interval length has no economic effect.** Measured across the five band
+cadences, 96 → 600 minutes (Appendix C), and pinned by
+`cadenceLengthDoesNotChangeTheEconomy` from 60 → 2,880. This is what makes the band system in §4.1 safe: cadence
 changes how much planning room you have and how often you must attend, and
 nothing else.
 
@@ -649,8 +658,8 @@ for time; a fleet moves at the speed of its slowest ship.
 
 **Standing rule:** everything the ship UI displays must be implemented for real at
 some point. `cargoCapacity`, `shields`, `weapons` are currently invented
-placeholders. A commitment, not decoration. Cargo lands in Phase 2, combat stats
-in Phase 7.
+placeholders. A commitment, not decoration. Cargo lands in Phase 3, combat stats
+in Phase 8.
 
 ## 12. Research
 
@@ -669,7 +678,7 @@ gating is the *reward*.
 
 Not built. Recorded here so the shape is settled before they land.
 
-**Buildings and levels (Phase 4).** Levels go on a new **`Building`** concept, not
+**Buildings and levels (Phase 5).** Levels go on a new **`Building`** concept, not
 on chains directly — Helios's chains *already are* buildings ("Ice Harvester" is a
 building running a chain), so `Building` spans production plus the Habitat /
 Storage / Defense categories the chips already name. Unifies the taxonomy and
@@ -702,17 +711,17 @@ two knobs; neither works alone.
 Storage becomes protective as well as productive, and it is what makes offline
 absence meaningful rather than free.
 
-**Loss / hazards (Phase 7).** Bounded: hazards take only stock *above* storage
+**Loss / hazards (Phase 8).** Bounded: hazards take only stock *above* storage
 capacity — never population, never buildings. Raid-type hazards steal *and*
 destroy more; environmental events are milder.
 
-**Combat resolver (Phase 7).** OGame's algorithm taken near-verbatim (~60 lines):
+**Combat resolver (Phase 8).** OGame's algorithm taken near-verbatim (~60 lines):
 ≤6 rounds, simultaneous, random targeting, shield→hull, per-hit explosion roll
 below 70% hull, rapidfire re-roll, shields regenerating between rounds. The
 per-hit explosion roll is what makes swarms beat few — the most important balance
 property. Full spec in `OGAME_COMPARISON.md` §3.8.
 
-**Colony score (Phase 5).** **Standing is the score** (§4.1), with reliability as
+**Colony score (Phase 6).** **Standing is the score** (§4.1), with reliability as
 its input, sub-scored economy / research / military / defence. Must be designed
 knowing it will eventually be public.
 
@@ -775,7 +784,7 @@ per tab, with a single `GlassTabBar` floating above so it survives pushes.
 - Tab roots (Colony, Production, Fleet, Research) have **no** back chevron
 - Detail screens hide the native back button and use a glass `CircleGlassButton`
   wired to `@Environment(\.dismiss)`
-- Payloads are `Hashable`: `ChainDetail.ID`, `ShipRouteTarget`, `ProductionListNav`
+- Payloads are `Hashable`: `ChainDetail.ID`, `ShipRouteTarget`, `ProductionListNav`, `QuotaDetailNav` — each registered once per stack, in `RootView`
 
 ### Game loop
 
@@ -788,9 +797,9 @@ Two pacing levers, split so they never have to be untangled:
 - `fleetRate` — ship travel **and** shipyard build time
 
 Both currently `1.0` (**accelerated**: one tick applies a full per-minute rate, so
-one tick = one game-minute). Phase 3 dials `economyRate` to 1/60.
+one tick = one game-minute). Phase 4 dials `economyRate` to 1/60.
 
-`tick()` is a **pure step that reads no clock**, so Phase 3 can replay it in a
+`tick()` is a **pure step that reads no clock**, so Phase 4 can replay it in a
 loop. `advanceOneTick(now:)` wraps it and stamps `lastTickAt` — that's what the
 timer calls. Order within a colony: **population eats first**, then production
 chains, then the shipyard; ships advance at empire level afterwards.
@@ -798,7 +807,7 @@ chains, then the shipyard; ships advance at empire level afterwards.
 ### Portability — the multiplayer constraint
 
 Asynchronous multiplayer in a shared persistent galaxy, **server-authoritative**,
-is planned after Phase 7. This constrains code written now.
+is Phase 9. This constrains code written now.
 
 OGame can project resources client-side because its production is **linear**.
 Helios cannot: the sim is **path-dependent** (chains stall and throttle,
@@ -938,9 +947,9 @@ for 1,200 ticks against `GameState.seeded()`.
 | **S7** | **Resolved, Phase 1a (28 Aug 2026).** `Colony.gridFactor` was a separately computed re-derivation of `ProductionAllocator`'s internal `energyFactor` — the UI rendered one, the sim obeyed the other. Fixed: `ProductionAllocator.run` now returns the factor it used, and `Colony.gridFactor` stores it verbatim. | — | Done |
 | **S8** | **Resolved, Phase 1.5 (2 Sep 2026).** Twelve tests over `ProductionAllocator` and `Population`, every expected value measured against the real allocator (Appendix C) — including S1's saturation scenario, pinned as a permanent regression test. Four more tests cover the Step 5 persistence round trip. | — | Done |
 | **S9** | `Models/ResearchProject.swift` **imports SwiftUI** (`ResearchCategory.icon`). One crack in the constraint the multiplayer plan rests on. | Low | Move to `ModelStyles` |
-| **S10** | **Research entirely inert**, and the UI doesn't say so — "+12/min from Ascendants" with zero Ascendants and a number that never moves. `status` is a `let`. | Medium | Archive (§4.6), Phase 5 |
+| **S10** | **Research entirely inert**, and the UI doesn't say so — "+12/min from Ascendants" with zero Ascendants and a number that never moves. `status` has been a `var` since Phase 1.5, but nothing ever advances it. | Medium | Archive (§4.6), Phase 5 |
 | **S11** | **Unenforced fields:** `requiredTier` (never checked), `workforceAssigned/Required` (display only; Tool Fab seeded 5/6), `providesWorkforce` (unused), `LimitReason.workforce` (never produced but styled and captioned), `GalaxyCoordinate.distance` (unwired). **`ChainStatus.paused` is now produced** (Phase 1a, 28 Aug 2026) — `outputPercent == 0` reports it; the rest of this row is still open. | Medium | Phase 1 (workforce), §5 |
-| **S12** | **Resolved, Phase 1a + Phase 1.5 (28 Aug – 2 Sep 2026).** Phase 1a's `@State` fix stopped the per-tick re-roll but not a per-tab-switch one: `RootView` selects tabs with a `switch`, so each tab is a distinct view identity, and switching tabs tore `VoidBackground`'s `@State` down and regenerated it. Phase 1.5 Step 1 made the starfield a `private static let`, generated once per launch and shared by every instance — it does not want per-view identity at all. `PlanetBackdrop` now takes a `seed: Int` (new `SeededGenerator`, SplitMix64) so a given world looks identical every time it's opened, while different worlds still differ. See §23. | — | Done |
+| **S12** | **Resolved, Phase 1a + Phase 1.5 (28 Aug – 2 Sep 2026).** Phase 1a's `@State` fix stopped the per-tick re-roll but not a per-tab-switch one: `RootView` selects tabs with a `switch`, so each tab is a distinct view identity, and switching tabs tore `VoidBackground`'s `@State` down and regenerated it. Phase 1.5 Step 1 made the starfield a `private static let`, generated once per launch and shared by every instance — it does not want per-view identity at all. `PlanetBackdrop` now takes a `seed: Int` (new `SeededGenerator`, SplitMix64) so a given world looks identical every time it's opened, while different worlds still differ. **Reopened and re-fixed 14 Oct 2026:** both call sites seeded from `String.hashValue`, which Swift randomises per launch, so the planet still re-rolled on every launch. They now use `String.stableSeed` (FNV-1a), pinned by a test against an out-of-process value. See §23. | — | Done |
 | **S13** | **Doc drift** — resolved by this document. Recorded in §21 for the record. | — | Done |
 | **S14** | **Resolved, Phase 1.5 (2 Sep 2026).** The two items that actually mattered for persistence: `ChainDetail`/`ResearchProject` now use slug ids (`ChainID`/`ResearchID`), consistent with the rest of authored data — a regenerated `UUID()` would have orphaned every save's chain/project references on next launch. Duplicate `.navigationDestination(for: ChainDetail.ID.self)` registration removed; registered once per stack, in `RootView`. **Still open, low priority, not worth their own row:** `ContentView` is a pure passthrough; the ticker is attached to `GlassTabBar` (hide the bar and time stops); `kepler-7` has `travelTimeMinutes: 0`. | — | Done |
 | **S15** | **Resolved, Phase 1a (28 Aug 2026).** `resolveStatus` compared achieved throughput to `1.0` with a `0.001` tolerance, so chains at 99.5% throughput reported "Limited" in amber — measured at 8 of 10 chains, 100% of ticks, once a sink existed. Fixed: status is now measured against `outputPercent` (`attainment = achieved ÷ outputPercent`), tolerance widened to `0.02`. Verified: with the debug sink on and all chains at 100%, exactly two — Alloy Tool Fab and Cell Factory — read amber, both "Limited by Refined Alloy", the real structural bottleneck. | — | Done |
@@ -1447,8 +1456,11 @@ a flat figure per cycle, but cadence changes with the band, so a flat figure is
 at its mercy: income per game-minute would have run 0 / 1.25 / 1.25 / 1.00 / 0.75
 from Receivership to Patron, and **Patron would have paid 40% less per hour than
 Indifferent** — the exact opposite of §4.1's "bonus stipend". Scaling by the
-cadence the shipment covers makes income per game-minute exactly the band
-multiplier. This is the demand-rate invariant in mirror image, and the general
+cadence the shipment covers makes income per game-minute
+`stipendPerGameMinute × stipendMultiplier`: **0 / 0.875 / 1.25 / 1.5 / 1.875
+credits**, proportional to the multiplier ladder **0 / 0.7 / 1.0 / 1.2 / 1.5**.
+(Two different constants — tune `stipendMultiplier` to reshape the ladder,
+`stipendPerGameMinute` to scale all of it.) This is the demand-rate invariant in mirror image, and the general
 rule is worth stating once: **anything expressed per settlement is distorted by
 cadence.**
 
@@ -1550,7 +1562,12 @@ full-width-stretch bug via `PlanetBackdrop`'s atmosphere glow.
 **Silent navigation failure.** A `NavigationLink(value:)` whose type has no
 registered `.navigationDestination` fails silently — no crash, no warning, just a
 dead tap. "Tapping does nothing" is almost always a value/destination **type
-mismatch**. Note `ChainDetail.ID` is currently registered in two places (§18 S14).
+mismatch**. Every payload type is registered **once per stack**, in `RootView` (fixed in Phase 1.5, §18 S14) — a second registration, or none, is the first thing to check.
+
+**Never seed anything from `hashValue`.** Swift randomises `String.hashValue` per
+process: stable within a launch, different on the next, so it passes every
+in-process test. Use `String.stableSeed`. `grep -rn "hashValue" Helios/` should
+find only that warning in `SeededGenerator.swift` (§18 S12).
 
 **`let` as the first statement in a `ForEach` closure** breaks type inference; the
 compiler falls back to the `Binding<C>` overload. Extract the row into an
@@ -1676,7 +1693,7 @@ copies were then deleted and replaced with a single stub.
 be live in search — and therefore still be answering questions with stale content.
 Search is the way to audit a project for duplicates, not the file listing.
 
-## Appendix C — Simulated balance baseline (28 Aug 2026)
+## Appendix C — Simulated balance baseline (re-measured Phase 2, 4–14 Oct 2026)
 
 Produced by a line-for-line Python port of `ProductionAllocator` and `Population`
 run against `GameState.seeded()`. Scripts live in `tools/`; re-run them whenever

@@ -479,8 +479,9 @@ final class GameState {
     /// income per game-minute would run 0 / 1.25 / 1.25 / 1.00 / 0.75 from
     /// Receivership to Patron, and Patron would pay 40% *less* per hour than
     /// Indifferent — the opposite of §4.1's "bonus stipend". Scaling by the
-    /// cadence the shipment covers makes income per game-minute exactly
-    /// `stipendMultiplier`: 0 / 0.875 / 1.25 / 1.5 / 1.875.
+    /// cadence the shipment covers makes income per game-minute
+    /// `stipendPerGameMinute × stipendMultiplier`: 0 / 0.875 / 1.25 / 1.5 /
+    /// 1.875 credits, proportional to the 0 / 0.7 / 1.0 / 1.2 / 1.5 ladder.
     ///
     /// This is the same trap as the demand-rate invariant, in mirror image:
     /// anything expressed per settlement is at the mercy of the cadence, so it
