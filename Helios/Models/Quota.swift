@@ -121,6 +121,10 @@ struct Quota: Codable, Hashable, Identifiable {
         amount(of: good) * scheduledFraction(atTick: tick)
     }
 
+    /// Slack before delivery counts as behind schedule. Shared by the panel
+    /// and `QuotaLineRow`, so both mean the same thing by amber.
+    static let paceTolerance = 0.02
+
     // MARK: - Settlement arithmetic
 
     /// Overall fill, **normalised per line so a big line and a small line count

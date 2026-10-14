@@ -40,7 +40,7 @@ struct MainColonyView: View {
             .offset(y: -50)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: GameTheme.Spacing.xl) {
                     HStack {
                         Text(game.activeColony.name.uppercased())
                             .font(.system(size: 12, weight: .semibold))
@@ -51,16 +51,16 @@ struct MainColonyView: View {
                     }
                     .padding(.top, 8)
 
-                    HStack(spacing: 10) {
+                    HStack(spacing: GameTheme.Spacing.sm) {
                         ResourcePill(icon: "bolt.fill",
                                      value: "\(game.activeColony.gridUtilisationPercent)%",
-                                     tint: game.activeColony.gridFactor < 1 ? GameTheme.warn : .yellow)
+                                     tint: game.activeColony.gridFactor < 1 ? GameTheme.warn : GameTheme.energy)
                         ResourcePill(icon: "wind",
                                      value: Format.decimal(game.activeColony.stock.amount(of: "oxygen")),
                                      tint: GameTheme.accent)
                         ResourcePill(icon: "dollarsign.circle.fill",
                                      value: Format.integer(game.credits),
-                                     tint: .green)
+                                     tint: GameTheme.credit)
                     }
 
                     PopulationPanel(population: game.activeColony.population)
@@ -98,7 +98,7 @@ struct MainColonyView: View {
                             .buttonStyle(.plain)
                         }
 
-                        VStack(spacing: 10) {
+                        VStack(spacing: GameTheme.Spacing.sm) {
                             ForEach(game.activeColony.productionChains) { chain in
                                 NavigationLink(value: chain.id) {
                                     ProductionChainRow(chain: chain)
@@ -126,6 +126,7 @@ struct MainColonyView: View {
                     band: game.standing.band,
                     reliability: game.standing.reliability,
                     fill: game.quotaFill,
+                    scheduled: game.quotaScheduledFraction,
                     minutesRemaining: game.quotaMinutesRemaining,
                     lineCount: quota.lineCount,
                     stipendIfMet: game.stipendForAMetQuota
@@ -145,24 +146,12 @@ struct MainColonyView: View {
             } else {
                 CommissionCard(
                     commission: contract,
-                    progress: game.commissionProgress,
-                    wouldBeMet: game.commissionWouldBeMet,
-                    minutesRemaining: contract.minutesRemaining(atTick: game.tickCount),
-                    shortfalls: shortfalls(for: contract),
+                    ledger: game.commissionLedger,
+                    tick: game.tickCount,
                     onAccept: { game.acceptCommission() },
                     onIgnore: { setAsideCommissionID = contract.id }
                 )
             }
-        }
-    }
-
-    /// Goods the colony cannot currently cover from what the Empire is allowed
-    /// to draw on. Shown before the player commits, because a commission is
-    /// irreversible once accepted and the whole decision is "can I make this".
-    private func shortfalls(for contract: Commission) -> [Resource.ID] {
-        contract.sortedLines.compactMap { line in
-            let available = QuotaLedger.drawable(line.good, from: game.activeColony.stock)
-            return available < line.amount ? line.good : nil
         }
     }
 }

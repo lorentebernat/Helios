@@ -86,6 +86,34 @@ struct Commission: Codable, Hashable, Identifiable {
         windowMinutes * Double(ticksRemaining(atTick: tick)) / Double(windowTicks)
     }
 
+    /// How far through the window we are, 0...1. Mirrors
+    /// `Quota.scheduledFraction(atTick:)`.
+    func scheduledFraction(atTick tick: Int) -> Double {
+        min(1, max(0, Double(tick - offeredAtTick) / Double(windowTicks)))
+    }
+
+    // MARK: - Pace (what the card colours by)
+
+    /// Slack before a line counts as behind, same as `QuotaLineRow`'s.
+    static let paceTolerance = 0.02
+
+    /// Behind its own clock: an accepted line has delivered less of itself
+    /// than the window has elapsed. A rush order you fill by producing during
+    /// the window is not "short" the tick after you accept it — raw progress
+    /// would paint every fresh contract amber, which is how a warning colour
+    /// stops meaning anything. Linear pace also covers "window nearly gone":
+    /// near the deadline the pace is ~100%, so an unmet line is behind.
+    /// Never true for a contract that isn't accepted. HELIOS.md §16.
+    func isBehindPace(_ good: Resource.ID, ledger: QuotaLedger, atTick tick: Int) -> Bool {
+        guard accepted, let owed = lines[good], owed > 0 else { return false }
+        let done = min(1, ledger.amountDelivered(of: good) / owed)
+        return done < scheduledFraction(atTick: tick) * (1 - Self.paceTolerance)
+    }
+
+    func isBehindPace(ledger: QuotaLedger, atTick tick: Int) -> Bool {
+        lines.keys.contains { isBehindPace($0, ledger: ledger, atTick: tick) }
+    }
+
     // MARK: - Outcome
 
     /// Progress, for the card's bar. Not what decides payment — see `isMet`.

@@ -23,15 +23,19 @@ struct QuotaPanel: View {
     let band: StandingBand
     let reliability: Double
     let fill: Double
+    /// How far through the cycle we are, 0...1 (`Quota.scheduledFraction`).
+    let scheduled: Double
     let minutesRemaining: Double
     let lineCount: Int
     let stipendIfMet: Int
 
-    /// Neutral unless the cycle is actually in trouble. Amber is reserved for
-    /// alerts (HELIOS.md §16), and "most of the way through a cycle with most
-    /// of the manifest still owed" is one.
+    /// Neutral unless the cycle is actually behind its own schedule, the same
+    /// rule `QuotaLineRow` applies per line. Amber is reserved for alerts
+    /// (HELIOS.md §16). An earlier version waited for `minutesRemaining` to
+    /// reach zero, which never happens on screen: settlement promotes the next
+    /// cycle on the very tick the deadline arrives.
     private var isOffTrack: Bool {
-        fill < 0.95 && minutesRemaining <= 0.001
+        fill < scheduled * (1 - Quota.paceTolerance)
     }
 
     private var barTint: Color {
@@ -64,7 +68,7 @@ struct QuotaPanel: View {
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.08))
+                    Capsule().fill(GameTheme.track)
                     Capsule()
                         .fill(
                             LinearGradient(
@@ -75,7 +79,7 @@ struct QuotaPanel: View {
                         .frame(width: geo.size.width * min(1, max(0, fill)))
                 }
             }
-            .frame(height: 6)
+            .frame(height: GameTheme.Size.heroProgressBar)
 
             HStack {
                 Text("\(Int((fill * 100).rounded()))% shipped · \(lineCount) goods")
@@ -105,4 +109,17 @@ struct QuotaPanel: View {
         .padding(GameTheme.Spacing.xl)
         .glass(cornerRadius: GameTheme.Radius.hero, strokeOpacity: GameTheme.GlassStroke.prominent)
     }
+}
+#Preview("On schedule") {
+    QuotaPanel(band: .indifferent, reliability: 0.88, fill: 0.52, scheduled: 0.5,
+               minutesRemaining: 118, lineCount: 8, stipendIfMet: 300)
+        .padding()
+        .background(GameTheme.voidBottom)
+}
+
+#Preview("Behind, Receivership") {
+    QuotaPanel(band: .receivership, reliability: 0.31, fill: 0.40, scheduled: 0.75,
+               minutesRemaining: 24, lineCount: 8, stipendIfMet: 0)
+        .padding()
+        .background(GameTheme.voidBottom)
 }

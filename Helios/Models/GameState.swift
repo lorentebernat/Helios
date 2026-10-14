@@ -575,16 +575,10 @@ final class GameState {
 
     var lastSettlement: QuotaSettlement? { settlementHistory.last }
 
-    /// Progress on the active contract, for its card's bar. Not what decides
-    /// payment — a commission is pass or fail.
-    var commissionProgress: Double {
-        commission?.fill(from: commissionLedger) ?? 0
-    }
-
-    /// Whether the active contract would pay if its deadline were now.
-    var commissionWouldBeMet: Bool {
-        guard let contract = commission else { return false }
-        return contract.isMet(by: commissionLedger)
+    /// How far through the live cycle we are, 0...1 — what the panel compares
+    /// `quotaFill` against to decide whether the cycle is behind.
+    var quotaScheduledFraction: Double {
+        currentQuota?.scheduledFraction(atTick: tickCount) ?? 0
     }
 
     // MARK: - Actions

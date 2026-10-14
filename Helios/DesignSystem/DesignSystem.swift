@@ -17,6 +17,9 @@ enum GameTheme {
     static let warn = Color(red: 0.95, green: 0.55, blue: 0.25)        // amber, alerts only
     static let textPrimary = Color.white
     static let textSecondary = Color.white.opacity(0.6)
+    static let track = Color.white.opacity(0.08)                        // empty part of a progress bar
+    static let energy = Color.yellow                                    // grid / power readouts
+    static let credit = Color.green                                     // credits readout
 
     // MARK: Spacing
 
@@ -50,6 +53,8 @@ enum GameTheme {
 
     enum Size {
         static let iconBadge: CGFloat = 46     // ProductionChainRow icon badge, reusable for Fleet/Research icons
+        static let progressBar: CGFloat = 5    // capsule progress bars in rows and cards
+        static let heroProgressBar: CGFloat = 6 // QuotaPanel's bar
     }
 
     // MARK: Glass Stroke Opacity
@@ -79,6 +84,8 @@ enum GameTheme {
         static let heroValue = SwiftUI.Font.system(size: 22, weight: .bold, design: .rounded)    // resource/pop counts
         static let heroTitle = SwiftUI.Font.system(size: 24, weight: .bold, design: .rounded)    // tier name
         static let tabLabel = SwiftUI.Font.system(size: 10, weight: .medium)                    // GlassTabBar labels — smallest text in the UI
+        static let footnote = SwiftUI.Font.system(size: 10, weight: .regular)                   // fine print under a row or card
+        static let button = SwiftUI.Font.system(size: 13, weight: .semibold)                    // glass pill buttons
     }
 }
 

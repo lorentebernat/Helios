@@ -35,11 +35,9 @@ struct QuotaLineRow: View {
     let stockOnHand: Double
 
     /// A line is behind when it has missed the pace by more than rounding.
-    private static let tolerance = 0.02
-
     private var isBehind: Bool {
         guard let scheduled, scheduled > 0 else { return false }
-        return delivered < scheduled * (1 - Self.tolerance)
+        return delivered < scheduled * (1 - Quota.paceTolerance)
     }
 
     private var tint: Color { isBehind ? GameTheme.warn : GameTheme.accent }
@@ -58,7 +56,7 @@ struct QuotaLineRow: View {
                 .foregroundStyle(tint)
                 .frame(width: 24)
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: GameTheme.Spacing.xs) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(resource?.name ?? good)
                         .font(GameTheme.Font.rowTitle)
@@ -72,7 +70,7 @@ struct QuotaLineRow: View {
 
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.08))
+                        Capsule().fill(GameTheme.track)
                         if let scheduled, demanded > 0, scheduled < demanded {
                             // A hairline where the schedule says you should be.
                             // Without it "behind" is a colour with nothing to
@@ -87,16 +85,16 @@ struct QuotaLineRow: View {
                             .frame(width: geo.size.width * fraction)
                     }
                 }
-                .frame(height: 5)
+                .frame(height: GameTheme.Size.progressBar)
 
                 HStack {
                     Text("\(Format.decimal(stockOnHand)) in store")
-                        .font(.system(size: 10))
+                        .font(GameTheme.Font.footnote)
                         .foregroundStyle(GameTheme.textSecondary)
                     Spacer()
                     if isBehind {
                         Text("Behind schedule")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(GameTheme.Font.footnote.weight(.semibold))
                             .foregroundStyle(GameTheme.warn)
                     }
                 }
@@ -108,4 +106,13 @@ struct QuotaLineRow: View {
             strokeOpacity: isBehind ? GameTheme.GlassStroke.prominent : GameTheme.GlassStroke.subtle
         )
     }
+}
+#Preview {
+    VStack(spacing: GameTheme.Spacing.sm) {
+        QuotaLineRow(good: "power-cells", demanded: 1_260, delivered: 640, scheduled: 630, stockOnHand: 54)
+        QuotaLineRow(good: "water", demanded: 120, delivered: 31, scheduled: 60, stockOnHand: 61)
+        QuotaLineRow(good: "grain", demanded: 480, delivered: 0, scheduled: nil, stockOnHand: 30)
+    }
+    .padding()
+    .background(GameTheme.voidBottom)
 }

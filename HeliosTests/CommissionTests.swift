@@ -345,6 +345,32 @@ struct CommissionTests {
         #expect(reservedSeen > 0, "no contract named a reserved good, so the floor was never checked")
     }
 
+    // MARK: - Pace: what the card colours amber
+
+    /// A freshly accepted contract has delivered nothing and is not behind; an
+    /// un-accepted one is never behind; a line that has fallen off its window's
+    /// pace is. HELIOS.md §16.
+    @Test func paceIsJudgedAgainstTheWindowNotRawProgress() {
+        var contract = Commission.sample          // window 240 → 360
+        let empty = QuotaLedger(quotaID: contract.id)
+        #expect(!contract.isBehindPace(ledger: empty, atTick: 340), "an offer is never behind")
+
+        contract.accepted = true
+        #expect(!contract.isBehindPace(ledger: empty, atTick: 240), "just accepted, nothing due yet")
+
+        // Halfway through: half of each line delivered is on pace.
+        let half = QuotaLedger(quotaID: contract.id,
+                               delivered: contract.lines.mapValues { $0 / 2 })
+        #expect(!contract.isBehindPace(ledger: half, atTick: 300))
+
+        // Raw ice in full, oxygen well short, with three-quarters of the window gone.
+        let lopsided = QuotaLedger(quotaID: contract.id,
+                                   delivered: ["raw-ice": 87.5, "oxygen": 5, "power-cells": 70])
+        #expect(!contract.isBehindPace("raw-ice", ledger: lopsided, atTick: 330))
+        #expect(contract.isBehindPace("oxygen", ledger: lopsided, atTick: 330))
+        #expect(contract.isBehindPace(ledger: lopsided, atTick: 330))
+    }
+
     // MARK: - Accepting is a commitment
 
     @Test func acceptingIsIrreversibleAndIdempotent() {

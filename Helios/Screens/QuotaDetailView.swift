@@ -49,6 +49,7 @@ struct QuotaDetailView: View {
                     band: game.standing.band,
                     reliability: game.standing.reliability,
                     fill: game.quotaFill,
+                    scheduled: game.quotaScheduledFraction,
                     minutesRemaining: game.quotaMinutesRemaining,
                     lineCount: quota.lineCount,
                     stipendIfMet: game.stipendForAMetQuota
@@ -106,7 +107,7 @@ struct QuotaDetailView: View {
             Spacer()
             VStack(spacing: 2) {
                 Text("Manifest \(quota.id)")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(GameTheme.Font.rowTitle)
                     .foregroundStyle(GameTheme.textPrimary)
                 Text(game.standing.band.posture)
                     .font(GameTheme.Font.caption)

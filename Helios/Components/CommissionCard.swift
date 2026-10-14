@@ -13,8 +13,14 @@
 // before the player commits, because the commitment is irreversible:
 //
 //   - on offer   — the terms, Accept and Ignore
-//   - accepted   — progress, and whether it would pay if the deadline were now
+//   - accepted   — progress, and whether it is keeping pace with its window
 //   - dismissed  — a single quiet line, because ignoring is *doing nothing*
+//
+// **AMBER ONLY WHEN BEHIND PACE**, mirroring QuotaLineRow. A freshly accepted
+// contract has delivered nothing and has its whole window ahead — that is not
+// an alert. An offer the player hasn't accepted is never amber: a commission is
+// a rush order you fill by producing during the window, so what is in store
+// right now says little about whether it can be met. HELIOS.md §16.
 //
 // Purely presentational: the screen owns the decision and hands in two
 // closures. HELIOS.md §21, "components stay pure functions of their inputs".
@@ -23,21 +29,16 @@ import SwiftUI
 
 struct CommissionCard: View {
     let commission: Commission
-    let progress: Double
-    let wouldBeMet: Bool
-    let minutesRemaining: Double
-
-    /// Which goods are already covered by what is in store, so the terms can be
-    /// judged without doing the arithmetic by hand.
-    let shortfalls: [Resource.ID]
+    let ledger: QuotaLedger
+    let tick: Int
 
     let onAccept: () -> Void
     let onIgnore: () -> Void
 
-    private var tint: Color {
-        guard commission.accepted else { return GameTheme.accent }
-        return wouldBeMet ? GameTheme.accent : GameTheme.warn
-    }
+    private var progress: Double { commission.fill(from: ledger) }
+    private var isMet: Bool { commission.isMet(by: ledger) }
+    private var isBehind: Bool { !isMet && commission.isBehindPace(ledger: ledger, atTick: tick) }
+    private var tint: Color { isBehind ? GameTheme.warn : GameTheme.accent }
 
     var body: some View {
         VStack(alignment: .leading, spacing: GameTheme.Spacing.md) {
@@ -53,30 +54,33 @@ struct CommissionCard: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(Format.duration(minutes: minutesRemaining))
+                    Text(Format.duration(minutes: commission.minutesRemaining(atTick: tick)))
                         .font(GameTheme.Font.body)
                         .foregroundStyle(GameTheme.textPrimary)
                         .monospacedDigit()
                     Text("to deliver")
-                        .font(.system(size: 10))
+                        .font(GameTheme.Font.footnote)
                         .foregroundStyle(GameTheme.textSecondary)
                 }
             }
 
-            VStack(spacing: 6) {
+            VStack(spacing: GameTheme.Spacing.xs) {
                 ForEach(commission.sortedLines, id: \.good) { line in
+                    let behind = commission.isBehindPace(line.good, ledger: ledger, atTick: tick)
                     HStack(spacing: GameTheme.Spacing.sm) {
                         Image(systemName: Resource.byID(line.good)?.icon ?? "questionmark.circle")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(shortfalls.contains(line.good) ? GameTheme.warn : GameTheme.textSecondary)
+                            .foregroundStyle(behind ? GameTheme.warn : GameTheme.textSecondary)
                             .frame(width: 16)
                         Text(Resource.byID(line.good)?.name ?? line.good)
                             .font(GameTheme.Font.caption)
                             .foregroundStyle(GameTheme.textPrimary)
                         Spacer()
-                        Text(Format.decimal(line.amount))
+                        Text(commission.accepted
+                             ? "\(Format.decimal(ledger.amountDelivered(of: line.good))) / \(Format.decimal(line.amount))"
+                             : Format.decimal(line.amount))
                             .font(GameTheme.Font.body)
-                            .foregroundStyle(shortfalls.contains(line.good) ? GameTheme.warn : GameTheme.textPrimary)
+                            .foregroundStyle(behind ? GameTheme.warn : GameTheme.textPrimary)
                             .monospacedDigit()
                     }
                 }
@@ -85,19 +89,19 @@ struct CommissionCard: View {
             if commission.accepted {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.08))
+                        Capsule().fill(GameTheme.track)
                         Capsule()
                             .fill(tint.opacity(0.75))
                             .frame(width: geo.size.width * min(1, max(0, progress)))
                     }
                 }
-                .frame(height: 5)
+                .frame(height: GameTheme.Size.progressBar)
 
-                Text(wouldBeMet
-                     ? "Complete — pays on the deadline"
-                     : "Short. A contract is paid in full or not at all.")
+                Text(isMet ? "Complete — pays on the deadline"
+                     : isBehind ? "Behind pace. A contract is paid in full or not at all."
+                     : "On pace. A contract is paid in full or not at all.")
                     .font(GameTheme.Font.caption)
-                    .foregroundStyle(wouldBeMet ? GameTheme.textSecondary : GameTheme.warn)
+                    .foregroundStyle(isBehind ? GameTheme.warn : GameTheme.textSecondary)
             } else {
                 HStack(spacing: GameTheme.Spacing.lg) {
                     Label("\(Format.integer(commission.creditReward))", systemImage: "dollarsign.circle.fill")
@@ -111,14 +115,14 @@ struct CommissionCard: View {
                 }
 
                 Text("Fail after accepting and it costs \(Format.decimal(commission.standingPenalty * 100))%. Ignoring costs nothing.")
-                    .font(.system(size: 10))
+                    .font(GameTheme.Font.footnote)
                     .foregroundStyle(GameTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: GameTheme.Spacing.sm) {
                     Button(action: onAccept) {
                         Text("Accept")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(GameTheme.Font.button)
                             .foregroundStyle(GameTheme.textPrimary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
@@ -129,7 +133,7 @@ struct CommissionCard: View {
 
                     Button(action: onIgnore) {
                         Text("Ignore")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(GameTheme.Font.button)
                             .foregroundStyle(GameTheme.textSecondary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
@@ -162,7 +166,7 @@ struct DismissedCommissionRow: View {
                     .foregroundStyle(GameTheme.textSecondary)
                 Spacer()
                 Text("Review")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(GameTheme.Font.caption.weight(.medium))
                     .foregroundStyle(GameTheme.accent)
             }
             .padding(.horizontal, GameTheme.Spacing.lg)
@@ -171,4 +175,45 @@ struct DismissedCommissionRow: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+// MARK: - Previews
+// GameState.seeded() has no commission, so without these no commission UI
+// path is previewable at all — the "dormant cases rot" condition of §23.
+
+private extension Commission {
+    func accepting() -> Commission {
+        var copy = self
+        copy.accepted = true
+        return copy
+    }
+}
+
+#Preview("Offered") {
+    CommissionCard(commission: .sample, ledger: .empty(forCommission: .sample),
+                   tick: 250, onAccept: {}, onIgnore: {})
+        .padding()
+        .background(GameTheme.voidBottom)
+}
+
+#Preview("Accepted, on pace") {
+    CommissionCard(commission: .sample.accepting(),
+                   ledger: QuotaLedger(quotaID: 1, delivered: ["raw-ice": 50, "oxygen": 30, "power-cells": 40]),
+                   tick: 300, onAccept: {}, onIgnore: {})
+        .padding()
+        .background(GameTheme.voidBottom)
+}
+
+#Preview("Accepted, behind") {
+    CommissionCard(commission: .sample.accepting(),
+                   ledger: QuotaLedger(quotaID: 1, delivered: ["raw-ice": 87.5, "oxygen": 5]),
+                   tick: 340, onAccept: {}, onIgnore: {})
+        .padding()
+        .background(GameTheme.voidBottom)
+}
+
+#Preview("Set aside") {
+    DismissedCommissionRow(onRestore: {})
+        .padding()
+        .background(GameTheme.voidBottom)
 }
